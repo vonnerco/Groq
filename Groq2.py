@@ -381,7 +381,7 @@ if prompt := st.chat_input("Enter your prompt here..."):
                     for m in st.session_state.messages
                 ],
                 "temperature": 0.2,
-                "max_completion_tokens: 4000,
+                "max_completion_tokens": 4000,
                 "top_p": 0.9,
                 "stream": True,
                 "stop": None,
