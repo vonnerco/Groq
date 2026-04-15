@@ -181,6 +181,32 @@ st.markdown(f"""
     <strong>Tokens:</strong> Prompt: {st.session_state.total_prompt_tokens} | Completion: {st.session_state.total_completion_tokens} | Total: {st.session_state.total_tokens_used} | Current: {st.session_state.current_tokens} | Requests: {st.session_state.request_count}
 </div>
 """, unsafe_allow_html=True)
+
+# Past Chats Dropdown
+chat_col1, chat_col2, chat_col3 = st.columns([2, 1, 1])
+with chat_col1:
+    chat_options = ["New Chat"] + list(st.session_state.saved_chats.keys())
+    selected_chat = st.selectbox("Past Chats", options=chat_options, index=chat_options.index(st.session_state.chat_name) if st.session_state.chat_name in chat_options else 0)
+    if selected_chat != st.session_state.chat_name:
+        if selected_chat == "New Chat":
+            st.session_state.messages = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
+        else:
+            st.session_state.messages = st.session_state.saved_chats[selected_chat].copy()
+        st.session_state.chat_name = selected_chat
+        st.rerun()
+with chat_col2:
+    st.text("")
+    st.text("")
+    chat_name_input = st.text_input("Save as", value=st.session_state.chat_name if st.session_state.chat_name != "New Chat" else "")
+with chat_col3:
+    st.text("")
+    st.text("")
+    if st.button("Save Chat", use_container_width=True) and chat_name_input.strip():
+        st.session_state.saved_chats[chat_name_input.strip()] = st.session_state.messages.copy()
+        st.session_state.chat_name = chat_name_input.strip()
+        st.success(f"Chat saved: {chat_name_input}")
+        st.rerun()
+
 # Layout for model selection and max_tokens slider
 col1, col2 = st.columns(2)
 with col1:
