@@ -82,19 +82,7 @@ MODELS = {
 DEFAULT_MODEL = "moonshotai/kimi-k2-instruct"
 
 # System prompt for auto file/code features
-AUTO_FEATURES_PROMPT = """You have access to these automatic features. Use them when appropriate - do NOT explain them to the user:
-
-1. FILE READING: If user asks to see, read, show, look at, or understand any file - automatically read it using the > filename shortcut. DO NOT ask permission.
-
-2. FILE WRITING: If user asks to write, save, create, or modify any file - automatically use >! filename, then prompt for content. DO NOT ask permission.
-
-3. CODE EXECUTION: If user asks to run, execute, test, or try any code - it will be automatically detected and run. DO NOT ask permission.
-
-IMPORTANT: When you detect the user wants to read a file, just type > filename and press enter. The file will be read and its contents sent back to you automatically. You do not need to explain what you're doing - just do it and respond to the content.
-
-IMPORTANT: When you detect the user wants to write a file, just type >! filename and press enter. The user will then enter content followed by '---'. You do not need to explain what you're doing.
-
-IMPORTANT: When the user shows you code, it will be automatically executed and the output returned to you. You do not need to ask permission to run code."""
+AUTO_FEATURES_PROMPT = "Auto-features: Type > filename to read, >! filename to write, code runs automatically."
 
 # Custom styling
 st.markdown("""
@@ -148,10 +136,21 @@ if "total_tokens_used" not in st.session_state:
 if "request_count" not in st.session_state:
     st.session_state.request_count = 0
 
+if "current_tokens" not in st.session_state:
+    st.session_state.current_tokens = 0
+
 
 icon("🏎️")
 
 st.subheader("Groq2 Chat - Token-Optimized AI", divider="rainbow", anchor=False)
+
+st.markdown(f"""
+<div class="stats-box">
+    <strong>Tokens:</strong> Prompt: {st.session_state.total_prompt_tokens} | Completion: {st.session_state.total_completion_tokens} | Total: {st.session_state.total_tokens_used} | Current: {st.session_state.current_tokens} | Requests: {st.session_state.request_count}
+</div>
+""", unsafe_allow_html=True)
+
+
 
 # Layout for model selection and max_tokens slider
 col1, col2 = st.columns(2)
@@ -181,7 +180,7 @@ with col2:
         "Max Tokens:",
         min_value=512,
         max_value=max_tokens_range,
-        value=min(8192, max_tokens_range),
+        value=min(4000, max_tokens_range),
         step=512,
         help=f"Adjust the maximum number of tokens. Max for selected model: {max_tokens_range}"
     )
@@ -196,7 +195,7 @@ for message in st.session_state.messages:
 
 # Stats display
 st.markdown("---")
-col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+col_stats1, col_stats2, col_stats3, col_stats4, col_stats5 = st.columns(5)
 with col_stats1:
     st.metric("Requests", st.session_state.request_count)
 with col_stats2:
@@ -205,8 +204,13 @@ with col_stats3:
     st.metric("Completion Tokens", st.session_state.total_completion_tokens)
 with col_stats4:
     st.metric("Total Tokens", st.session_state.total_tokens_used)
+    st.metric("Current Msg", st.session_state.current_tokens)
 
 
+def estimate_tokens(text: str) -> int:
+    if isinstance(text, list):
+        text = " ".join(str(item) for item in text)
+    return len(text) // 4
 def generate_chat_responses(chat_completion) -> Generator[str, None, None]:
     """Yield chat response content from the Groq API response."""
     for chunk in chat_completion:
@@ -347,7 +351,8 @@ if prompt := st.chat_input("Enter your prompt here..."):
             except Exception as e:
                 st.error(f"Error reading file: {e}")
         st.rerun()
-
+        st.session_state.messages = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
+        st.session_state.current_tokens = 0
     # Handle file write
     elif auto_write:
         st.info(f"Write mode for: {filename}. Use the code execution feature to write files.")
@@ -376,7 +381,7 @@ if prompt := st.chat_input("Enter your prompt here..."):
                     for m in st.session_state.messages
                 ],
                 "temperature": 0.2,
-                "max_completion_tokens": 8192,
+                "max_completion_tokens: 4000,
                 "top_p": 0.9,
                 "stream": True,
                 "stop": None,
@@ -396,6 +401,17 @@ if prompt := st.chat_input("Enter your prompt here..."):
             else:
                 combined_response = "\n".join(str(item) for item in full_response)
                 st.session_state.messages.append({"role": "assistant", "content": combined_response})
+
+            
+            # Update token counts
+            user_tokens = estimate_tokens(prompt)
+            response_text = combined_response if not isinstance(full_response, str) else full_response
+            response_tokens = estimate_tokens(response_text)
+            st.session_state.current_tokens = user_tokens + response_tokens
+            st.session_state.total_prompt_tokens += user_tokens
+            st.session_state.total_completion_tokens += response_tokens
+            st.session_state.total_tokens_used += st.session_state.current_tokens
+            st.session_state.request_count += 1
 
             # Handle auto actions from AI response
             read_content, write_file, write_msg = handle_auto_actions(full_response)
