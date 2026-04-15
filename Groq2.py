@@ -8,9 +8,62 @@ from dotenv import load_dotenv
 import streamlit as st
 from typing import Generator
 from groq import Groq
+
+try:
+    from mcp import ClientSession
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
 load_dotenv()  # Loads .env
 st.set_page_config(page_icon="💬", layout="wide",
                    page_title="Groq2 Chat - Token-Optimized AI")
+
+# MCP Client
+mcp_client = None
+mcp_session = None
+
+
+async def connect_mcp_server(command: str, args: list = None):
+    """Connect to a local MCP server."""
+    global mcp_client, mcp_session
+    if not MCP_AVAILABLE:
+        return "MCP package not installed. Run: pip install mcp"
+    try:
+        from mcp.client.stdio import stdio_client
+        params = {"command": command}
+        if args:
+            params["args"] = args
+        mcp_client = stdio_client(params)
+        mcp_session = ClientSession(mcp_client)
+        await mcp_session.initialize()
+        return "Connected to MCP server"
+    except Exception as e:
+        return f"Failed to connect: {e}"
+
+
+async def call_mcp_tool(tool_name: str, arguments: dict = None):
+    """Call a tool from the MCP server."""
+    global mcp_session
+    if not mcp_session:
+        return "Not connected to MCP server"
+    try:
+        result = await mcp_session.call_tool(tool_name, arguments or {})
+        return result.content if hasattr(result, 'content') else str(result)
+    except Exception as e:
+        return f"Tool error: {e}"
+
+
+async def list_mcp_tools():
+    """List available tools from MCP server."""
+    global mcp_session
+    if not mcp_session:
+        return []
+    try:
+        tools = await mcp_session.list_tools()
+        return tools
+    except Exception:
+        return []
+
 client = Groq(
     api_key=os.environ.get("GROQ_API_KEY"),
 )
@@ -163,6 +216,29 @@ for message in st.session_state.messages:
     avatar = '🤖' if message["role"] == "assistant" else '👨‍💻'
     with st.chat_message(message["role"], avatar=avatar):
         st.markdown(message["content"])
+
+# MCP Server Connection
+if MCP_AVAILABLE:
+    st.markdown("---")
+    with st.expander("MCP Server Connection", expanded=False):
+        mcp_col1, mcp_col2 = st.columns([3, 1])
+        with mcp_col1:
+            mcp_command = st.text_input("MCP Server Command", value="npx", help="Command to run MCP server (e.g., npx, python, node)")
+            mcp_args = st.text_input("Server Args (optional)", value="-y @anthropic/mcp-server-anthropic", help="Arguments for the server command")
+        with mcp_col2:
+            st.text("")
+            if st.button("Connect", use_container_width=True):
+                args_list = mcp_args.split() if mcp_args.strip() else None
+                import asyncio
+                result = asyncio.run(connect_mcp_server(mcp_command, args_list))
+                st.session_state.mcp_status = result
+                st.rerun()
+        if "mcp_status" in st.session_state:
+            st.info(st.session_state.mcp_status)
+        if mcp_session:
+            tools = asyncio.run(list_mcp_tools())
+            if tools:
+                st.success(f"Connected! {len(tools)} tools available")
 # Stats display
 st.markdown("---")
 col_stats1, col_stats2, col_stats3, col_stats4, col_stats5 = st.columns(5)
