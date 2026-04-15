@@ -99,7 +99,7 @@ st.markdown("""
         border-radius: 10px;
         margin: 5px 0;
     }
-    .stats-box {
+    .stats-box { color: white;
         background-color: #0f3460;
         padding: 15px;
         border-radius: 10px;
