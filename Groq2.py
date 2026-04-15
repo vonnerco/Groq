@@ -174,6 +174,10 @@ if "request_count" not in st.session_state:
     st.session_state.request_count = 0
 if "current_tokens" not in st.session_state:
     st.session_state.current_tokens = 0
+if "saved_chats" not in st.session_state:
+    st.session_state.saved_chats = {}
+if "chat_name" not in st.session_state:
+    st.session_state.chat_name = "New Chat"
 icon("🏎️")
 st.subheader("Groq2 Chat - Token-Optimized AI", divider="rainbow", anchor=False)
 st.markdown(f"""
