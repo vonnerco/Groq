@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show *)",
+      "Bash(pip install *)",
+      "Bash(python -m py_compile Groq2.py)",
+      "Bash(timeout 8 streamlit run Groq2.py --server.headless true)",
+      "Bash(git reset *)",
+      "Read(//c/Users/Corde/.git/**)",
+      "Bash(git init *)",
+      "Bash(git remote *)"
+    ]
+  }
+}
