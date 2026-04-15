@@ -8,16 +8,12 @@ from dotenv import load_dotenv
 import streamlit as st
 from typing import Generator
 from groq import Groq
-
 load_dotenv()  # Loads .env
-
 st.set_page_config(page_icon="💬", layout="wide",
                    page_title="Groq2 Chat - Token-Optimized AI")
-
 client = Groq(
     api_key=os.environ.get("GROQ_API_KEY"),
 )
-
 # All 7 Groq models with their rate limits
 MODELS = {
     "llama-3.1-8b-instant": {
@@ -77,13 +73,10 @@ MODELS = {
         "description": "Newer 0905 version of kimi-k2",
     },
 }
-
 # Default model
 DEFAULT_MODEL = "moonshotai/kimi-k2-instruct"
-
 # System prompt for auto file/code features
 AUTO_FEATURES_PROMPT = "Auto-features: Type > filename to read, >! filename to write, code runs automatically."
-
 # Custom styling
 st.markdown("""
 <style>
@@ -107,54 +100,36 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-
 def icon(emoji: str):
     """Shows an emoji as a Notion-style page icon."""
     st.write(
         f'<span style="font-size: 78px; line-height: 1">{emoji}</span>',
         unsafe_allow_html=True,
     )
-
-
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
-
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = DEFAULT_MODEL
-
 if "total_prompt_tokens" not in st.session_state:
     st.session_state.total_prompt_tokens = 0
-
 if "total_completion_tokens" not in st.session_state:
     st.session_state.total_completion_tokens = 0
-
 if "total_tokens_used" not in st.session_state:
     st.session_state.total_tokens_used = 0
-
 if "request_count" not in st.session_state:
     st.session_state.request_count = 0
-
 if "current_tokens" not in st.session_state:
     st.session_state.current_tokens = 0
-
-
 icon("🏎️")
-
 st.subheader("Groq2 Chat - Token-Optimized AI", divider="rainbow", anchor=False)
-
 st.markdown(f"""
 <div class="stats-box">
     <strong>Tokens:</strong> Prompt: {st.session_state.total_prompt_tokens} | Completion: {st.session_state.total_completion_tokens} | Total: {st.session_state.total_tokens_used} | Current: {st.session_state.current_tokens} | Requests: {st.session_state.request_count}
 </div>
 """, unsafe_allow_html=True)
-
-
-
 # Layout for model selection and max_tokens slider
 col1, col2 = st.columns(2)
-
 with col1:
     model_option = st.selectbox(
         "Choose a model:",
@@ -162,7 +137,6 @@ with col1:
         format_func=lambda x: f"{x} ({MODELS[x]['description'][:40]})",
         index=list(MODELS.keys()).index(DEFAULT_MODEL) if DEFAULT_MODEL in MODELS else 0,
     )
-
 # Detect model change and clear chat history if model has changed
 if st.session_state.selected_model != model_option:
     st.session_state.messages = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
@@ -171,10 +145,8 @@ if st.session_state.selected_model != model_option:
     st.session_state.total_completion_tokens = 0
     st.session_state.total_tokens_used = 0
     st.session_state.request_count = 0
-
 model_info = MODELS[model_option]
 max_tokens_range = model_info["context_window"]
-
 with col2:
     max_tokens = st.slider(
         "Max Tokens:",
@@ -184,7 +156,6 @@ with col2:
         step=512,
         help=f"Adjust the maximum number of tokens. Max for selected model: {max_tokens_range}"
     )
-
 # Display chat messages from history on app rerun
 for message in st.session_state.messages:
     if message["role"] == "system":
@@ -192,7 +163,6 @@ for message in st.session_state.messages:
     avatar = '🤖' if message["role"] == "assistant" else '👨‍💻'
     with st.chat_message(message["role"], avatar=avatar):
         st.markdown(message["content"])
-
 # Stats display
 st.markdown("---")
 col_stats1, col_stats2, col_stats3, col_stats4, col_stats5 = st.columns(5)
@@ -205,8 +175,22 @@ with col_stats3:
 with col_stats4:
     st.metric("Total Tokens", st.session_state.total_tokens_used)
     st.metric("Current Msg", st.session_state.current_tokens)
-
-
+def trim_messages(messages: list, max_tokens: int = 6000) -> list:
+    """Trim messages to stay within token limit, keeping system prompt."""
+    if not messages:
+        return messages
+    
+    system_msg = messages[0] if messages[0]["role"] == "system" else None
+    chat_msgs = messages[1:] if system_msg else messages
+    
+    system_tokens = estimate_tokens(system_msg["content"]) if system_msg else 0
+    target_tokens = max_tokens - system_tokens - 500  # Buffer for response
+    
+    trimmed = chat_msgs
+    while estimate_tokens(str(trimmed)) > target_tokens and len(trimmed) > 4:
+        trimmed = trimmed[2:]  # Remove oldest user+assistant pair
+    
+    return [system_msg] + trimmed if system_msg else trimmed
 def estimate_tokens(text: str) -> int:
     if isinstance(text, list):
         text = " ".join(str(item) for item in text)
@@ -216,8 +200,6 @@ def generate_chat_responses(chat_completion) -> Generator[str, None, None]:
     for chunk in chat_completion:
         if chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
-
-
 def execute_code(code: str) -> tuple[str, str]:
     """Execute Python code and return (stdout, stderr)."""
     output_buffer = io.StringIO()
@@ -229,14 +211,11 @@ def execute_code(code: str) -> tuple[str, str]:
     except Exception as e:
         tb = traceback.format_exc()
         return "", f"{e}\n{tb}"
-
-
 def handle_auto_actions(content: str) -> tuple[str, str, str]:
     """Handle auto file read/write actions. Returns (read_content, write_file, write_content)."""
     auto_read_file = None
     auto_write_file = None
     auto_write_content = None
-
     for line in content.split('\n'):
         stripped = line.strip()
         if stripped.startswith('>! '):
@@ -250,7 +229,6 @@ def handle_auto_actions(content: str) -> tuple[str, str, str]:
                 auto_write_content = '\n'.join(lines)
         elif stripped.startswith('> ') and not auto_read_file:
             auto_read_file = stripped[2:].strip()
-
     # Perform auto-read
     if auto_read_file:
         try:
@@ -262,7 +240,6 @@ def handle_auto_actions(content: str) -> tuple[str, str, str]:
             return f"File not found: {auto_read_file}", None, None
         except Exception as e:
             return f"Error reading file: {e}", None, None
-
     # Perform auto-write
     if auto_write_file and auto_write_content:
         try:
@@ -273,25 +250,18 @@ def handle_auto_actions(content: str) -> tuple[str, str, str]:
             return None, auto_write_file, f"Auto-wrote {len(auto_write_content.split(chr(10)))} lines to '{auto_write_file}'"
         except Exception as e:
             return None, None, f"Auto-write failed: {e}"
-
     return None, None, None
-
-
 if prompt := st.chat_input("Enter your prompt here..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-
     with st.chat_message("user", avatar='👨‍💻'):
         st.markdown(prompt)
-
     # Auto-detect file intent
     auto_read = False
     auto_write = False
     filename = ""
     exec_code = False
     code_to_run = None
-
     cmd = prompt.lower().strip()
-
     # Check for > and >! shortcuts
     if cmd.startswith(">! "):
         filename = prompt[3:].strip()
@@ -309,7 +279,6 @@ if prompt := st.chat_input("Enter your prompt here..."):
         if match:
             filename = match.group(1)
             auto_write = True
-
     # Auto-detect code execution
     code_block_match = re.search(r'```(?:python)?\n(.*?)```', prompt, re.DOTALL)
     exec_keywords = ["run ", "execute ", "exec ", "run code", "execute code", "run this", "execute this", "run it", "execute it"]
@@ -318,7 +287,6 @@ if prompt := st.chat_input("Enter your prompt here..."):
         any(k in prompt for k in ["print(", "import ", "def ", "class ", "if ", "for ", "while ", "return ", "print("]) and
         len(prompt.split('\n')) <= 10
     )
-
     if code_block_match or is_bare_code or any(kw in cmd for kw in exec_keywords):
         code = code_block_match.group(1) if code_block_match else None
         if not code:
@@ -332,9 +300,7 @@ if prompt := st.chat_input("Enter your prompt here..."):
             code = re.sub(r'^(run|exec|python)[:\s]*', '', code, flags=re.IGNORECASE).strip()
             code_to_run = code
             exec_code = True
-
     full_response = ""
-
     # Handle file read
     if auto_read:
         if filename:
@@ -357,7 +323,6 @@ if prompt := st.chat_input("Enter your prompt here..."):
     elif auto_write:
         st.info(f"Write mode for: {filename}. Use the code execution feature to write files.")
         st.rerun()
-
     # Handle code execution
     elif exec_code and code_to_run:
         st.info("Executing code...")
@@ -369,17 +334,13 @@ if prompt := st.chat_input("Enter your prompt here..."):
         if not stdout_out and not stderr_out:
             st.info("(no output)")
         st.rerun()
-
     # Normal chat completion with specified parameters
     else:
         try:
             # Build API call kwargs
             api_kwargs = {
                 "model": model_option,
-                "messages": [
-                    {"role": m["role"], "content": m["content"]}
-                    for m in st.session_state.messages
-                ],
+                "messages": [{"role": m["role"], "content": m["content"]} for m in trim_messages(st.session_state.messages)],
                 "temperature": 0.2,
                 "max_completion_tokens": 4000,
                 "top_p": 0.9,
@@ -389,19 +350,16 @@ if prompt := st.chat_input("Enter your prompt here..."):
             # Only add reasoning_effort for models that support it with "high" value
             # Most models don't support it, or only support "none"/"default"
             chat_completion = client.chat.completions.create(**api_kwargs)
-
             # Use the generator function with st.write_stream
             with st.chat_message("assistant", avatar="🤖"):
                 chat_responses_generator = generate_chat_responses(chat_completion)
                 full_response = st.write_stream(chat_responses_generator)
-
             # Append the full response to session_state.messages
             if isinstance(full_response, str):
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
             else:
                 combined_response = "\n".join(str(item) for item in full_response)
                 st.session_state.messages.append({"role": "assistant", "content": combined_response})
-
             
             # Update token counts
             user_tokens = estimate_tokens(prompt)
@@ -412,15 +370,12 @@ if prompt := st.chat_input("Enter your prompt here..."):
             st.session_state.total_completion_tokens += response_tokens
             st.session_state.total_tokens_used += st.session_state.current_tokens
             st.session_state.request_count += 1
-
             # Handle auto actions from AI response
             read_content, write_file, write_msg = handle_auto_actions(full_response)
             if read_content:
                 st.session_state.messages.append({"role": "system", "content": f"[File contents]:\n{read_content}"})
             if write_file:
                 st.session_state.messages.append({"role": "system", "content": f"[{write_msg}]"})
-
             st.rerun()
-
         except Exception as e:
             st.error(e, icon="🚨")
