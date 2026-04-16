@@ -579,7 +579,8 @@ if not groq_api_key:
     st.stop()
 
 client = Groq(api_key=groq_api_key)
-# Supported Groq models with their approximate rate limits
+# Supported Groq models with their approximate rate limits.
+# Keep this list aligned with the models that are actually available in the org.
 MODELS = {
     "llama-3.1-8b-instant": {
         "context_window": 8192,
@@ -587,15 +588,7 @@ MODELS = {
         "rpd": 14400,
         "tpm": 6000,
         "tpd": 500000,
-        "description": "Best for high-volume chat, prototypes, general use",
-    },
-    "allam-2-7b": {
-        "context_window": 8192,
-        "rpm": 30,
-        "rpd": 7000,
-        "tpm": 6000,
-        "tpd": 500000,
-        "description": "Arabic-focused workloads, lightweight text",
+        "description": "Fast general-purpose chat",
     },
     "llama-3.3-70b-versatile": {
         "context_window": 8192,
@@ -621,25 +614,9 @@ MODELS = {
         "tpd": 500000,
         "description": "Higher RPM ceiling for text generation",
     },
-    "qwen-qwq-32b": {
-        "context_window": 8192,
-        "rpm": 30,
-        "rpd": 1000,
-        "tpm": 6000,
-        "tpd": 300000,
-        "description": "Reasoning-heavy tasks and step-by-step problem solving",
-    },
-    "openai/gpt-oss-120b": {
-        "context_window": 8192,
-        "rpm": 30,
-        "rpd": 1000,
-        "tpm": 6000,
-        "tpd": 300000,
-        "description": "High-capability agentic work and long-context reasoning",
-    },
 }
 # Default model
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 # System prompt for auto file/code features
 AUTO_FEATURES_PROMPT = "Auto-features: Type > filename to read, >! filename to write, code runs automatically."
 def inject_theme_css(theme: str):
@@ -925,11 +902,15 @@ with chat_col4:
 with st.expander("Model settings", expanded=False):
     col1, col2 = st.columns(2)
     with col1:
+        current_model = st.session_state.get("selected_model", DEFAULT_MODEL)
+        if current_model not in MODELS:
+            current_model = DEFAULT_MODEL
+            st.session_state.selected_model = DEFAULT_MODEL
         model_option = st.selectbox(
             "Choose a model:",
             options=list(MODELS.keys()),
             format_func=lambda x: f"{x} ({MODELS[x]['description'][:40]})",
-            index=list(MODELS.keys()).index(DEFAULT_MODEL) if DEFAULT_MODEL in MODELS else 0,
+            index=list(MODELS.keys()).index(current_model) if current_model in MODELS else 0,
         )
     with col2:
         model_info = MODELS[model_option]

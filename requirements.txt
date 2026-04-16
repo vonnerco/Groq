@@ -6,3 +6,4 @@ pandas
 openpyxl
 python-docx
 pypdf
+typing_extensions>=4.15.0
