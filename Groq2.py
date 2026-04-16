@@ -332,6 +332,31 @@ def clear_active_upload_preview() -> None:
     st.session_state.active_upload_preview = None
 
 
+def get_uploaded_file_by_id(file_id: str) -> dict | None:
+    return next((item for item in st.session_state.get("uploaded_files", []) if item.get("id") == file_id), None)
+
+
+def get_uploaded_file_index(file_id: str) -> int | None:
+    for index, item in enumerate(st.session_state.get("uploaded_files", [])):
+        if item.get("id") == file_id:
+            return index
+    return None
+
+
+def set_preview_relative(step: int) -> None:
+    files = st.session_state.get("uploaded_files", [])
+    current_id = st.session_state.get("active_upload_preview")
+    if not files:
+        clear_active_upload_preview()
+        return
+    current_index = get_uploaded_file_index(current_id) if current_id else None
+    if current_index is None:
+        st.session_state.active_upload_preview = files[0].get("id")
+        return
+    next_index = (current_index + step) % len(files)
+    st.session_state.active_upload_preview = files[next_index].get("id")
+
+
 def ensure_daily_usage_state() -> None:
     """Reset usage counters when a new calendar day starts."""
     today = datetime.now().date().isoformat()
@@ -805,17 +830,25 @@ with st.sidebar:
 
         active_preview_id = st.session_state.get("active_upload_preview")
         if active_preview_id:
-            preview_record = next((item for item in st.session_state.get("uploaded_files", []) if item.get("id") == active_preview_id), None)
+            preview_record = get_uploaded_file_by_id(active_preview_id)
             if preview_record and os.path.exists(preview_record.get("path", "")):
                 with st.expander("File Preview", expanded=True):
                     preview_name = preview_record.get("original_name") or preview_record.get("label") or "Untitled"
                     st.caption(preview_name)
-                    preview_top_col1, preview_top_col2 = st.columns([1, 1])
+                    preview_top_col1, preview_top_col2, preview_top_col3, preview_top_col4 = st.columns([1, 1, 1, 1])
                     with preview_top_col1:
+                        if st.button("Prev", key=f"preview_prev_{active_preview_id}", use_container_width=True):
+                            set_preview_relative(-1)
+                            st.rerun()
+                    with preview_top_col2:
+                        if st.button("Next", key=f"preview_next_{active_preview_id}", use_container_width=True):
+                            set_preview_relative(1)
+                            st.rerun()
+                    with preview_top_col3:
                         if st.button("Close Preview", key=f"close_preview_{active_preview_id}", use_container_width=True):
                             clear_active_upload_preview()
                             st.rerun()
-                    with preview_top_col2:
+                    with preview_top_col4:
                         if st.button("Insert into Chat", key=f"preview_insert_{active_preview_id}", use_container_width=True):
                             insert_uploaded_file_into_chat(active_preview_id)
                             clear_active_upload_preview()
