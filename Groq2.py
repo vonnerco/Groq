@@ -38,6 +38,7 @@ if not is_streamlit_context():
 
 
 APP_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "groq2_state.json")
+SEED_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "groq2_seed_state.json")
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "groq2_uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -57,6 +58,16 @@ def load_persistent_state() -> dict:
         "current_tokens": 0,
     }
     if not os.path.exists(APP_STATE_FILE):
+        if os.path.exists(SEED_STATE_FILE):
+            try:
+                with open(SEED_STATE_FILE, "r", encoding="utf-8") as f:
+                    seeded = json.load(f)
+                if isinstance(seeded, dict):
+                    default_state.update({k: seeded.get(k, v) for k, v in default_state.items()})
+                    default_state["uploaded_files"] = []
+                    return default_state
+            except Exception:
+                pass
         return default_state
     try:
         with open(APP_STATE_FILE, "r", encoding="utf-8") as f:

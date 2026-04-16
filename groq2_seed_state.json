@@ -1,0 +1,54 @@
+{
+  "saved_chats": {
+    "Today Iphone": [
+      {
+        "role": "system",
+        "content": "Auto-features: Type > filename to read, >! filename to write, code runs automatically."
+      },
+      {
+        "role": "user",
+        "content": "What is today "
+      },
+      {
+        "role": "assistant",
+        "content": "Today's date is April 16, 2024."
+      }
+    ],
+    "Arena.AI": [
+      {
+        "role": "system",
+        "content": "Auto-features: Type > filename to read, >! filename to write, code runs automatically."
+      },
+      {
+        "role": "user",
+        "content": "https://arena.ai/"
+      },
+      {
+        "role": "assistant",
+        "content": "It appears that you've shared a link to Arena AI, a platform that provides a suite of tools for building, deploying, and managing AI models.\n\nHere are some key features of Arena AI:\n\n1. **Model Development**: Arena AI offers a range of tools for building and training AI models, including support for popular frameworks like TensorFlow and PyTorch.\n2. **Model Deployment**: Once a model is trained, Arena AI provides a simple way to deploy it to a variety of environments, including cloud platforms like AWS and Google Cloud.\n3. **Model Management**: Arena AI offers a centralized platform for managing AI models, including version control, model tracking, and collaboration features.\n4. **Data Management**: Arena AI provides tools for managing and preprocessing data, including data ingestion, transformation, and storage.\n5. **Integration**: Arena AI integrates with a range of popular tools and platforms, including data science frameworks, cloud platforms, and business intelligence tools.\n\nOverall, Arena AI appears to be a comprehensive platform for building, deploying, and managing AI models, with a focus on ease of use and scalability.\n\nWould you like to know more about Arena AI or is there something specific you'd like to know?"
+      }
+    ]
+  },
+  "uploaded_files": [],
+  "chat_name": "Arena.AI",
+  "selected_model": "moonshotai/kimi-k2-instruct",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Auto-features: Type > filename to read, >! filename to write, code runs automatically."
+    },
+    {
+      "role": "user",
+      "content": "https://arena.ai/"
+    },
+    {
+      "role": "assistant",
+      "content": "It appears that you've shared a link to Arena AI, a platform that provides a suite of tools for building, deploying, and managing AI models.\n\nHere are some key features of Arena AI:\n\n1. **Model Development**: Arena AI offers a range of tools for building and training AI models, including support for popular frameworks like TensorFlow and PyTorch.\n2. **Model Deployment**: Once a model is trained, Arena AI provides a simple way to deploy it to a variety of environments, including cloud platforms like AWS and Google Cloud.\n3. **Model Management**: Arena AI offers a centralized platform for managing AI models, including version control, model tracking, and collaboration features.\n4. **Data Management**: Arena AI provides tools for managing and preprocessing data, including data ingestion, transformation, and storage.\n5. **Integration**: Arena AI integrates with a range of popular tools and platforms, including data science frameworks, cloud platforms, and business intelligence tools.\n\nOverall, Arena AI appears to be a comprehensive platform for building, deploying, and managing AI models, with a focus on ease of use and scalability.\n\nWould you like to know more about Arena AI or is there something specific you'd like to know?"
+    }
+  ],
+  "total_prompt_tokens": 0,
+  "total_completion_tokens": 0,
+  "total_tokens_used": 0,
+  "request_count": 0,
+  "current_tokens": 0
+}
