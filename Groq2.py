@@ -324,6 +324,14 @@ def clear_file_preview_state(file_id: str) -> None:
     st.session_state.pop(f"show_preview_{file_id}", None)
 
 
+def set_active_upload_preview(file_id: str) -> None:
+    st.session_state.active_upload_preview = file_id
+
+
+def clear_active_upload_preview() -> None:
+    st.session_state.active_upload_preview = None
+
+
 def ensure_daily_usage_state() -> None:
     """Reset usage counters when a new calendar day starts."""
     today = datetime.now().date().isoformat()
@@ -357,6 +365,7 @@ def ensure_ux_state() -> None:
         "recent_prompts": [],
         "show_prompt_history": False,
         "uploaded_signatures": [],
+        "active_upload_preview": None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -749,14 +758,12 @@ with st.sidebar:
                         recent_col1, recent_col2 = st.columns([1, 1])
                         with recent_col1:
                             if st.button("Preview", key=f"recent_preview_btn_{file_id}", use_container_width=True):
-                                st.session_state[f"show_preview_{file_id}"] = True
+                                set_active_upload_preview(file_id)
                         with recent_col2:
                             if st.button("Insert", key=f"recent_insert_btn_{file_id}", use_container_width=True):
                                 insert_uploaded_file_into_chat(file_id)
-                                clear_file_preview_state(file_id)
+                                clear_active_upload_preview()
                                 st.rerun()
-                        if st.session_state.get(f"show_preview_{file_id}"):
-                            render_uploaded_file(path, file_record.get("original_name") or name, file_id)
 
         with st.expander("All uploads", expanded=False):
             grouped_files = {}
@@ -783,20 +790,43 @@ with st.sidebar:
                             file_col1, file_col2, file_col3 = st.columns([4, 1, 1])
                             with file_col1:
                                 if st.button("Preview", key=f"preview_btn_{file_id}", use_container_width=True):
-                                    st.session_state[f"show_preview_{file_id}"] = True
+                                    set_active_upload_preview(file_id)
                             with file_col2:
                                 if st.button("Insert", key=f"insert_btn_{file_id}", use_container_width=True):
                                     insert_uploaded_file_into_chat(file_id)
-                                    clear_file_preview_state(file_id)
+                                    clear_active_upload_preview()
                                     st.rerun()
                             with file_col3:
                                 if st.button("Delete", key=f"delete_btn_{file_id}", use_container_width=True):
                                     delete_uploaded_file(file_id)
                                     st.rerun()
-                            if st.session_state.get(f"show_preview_{file_id}"):
-                                render_uploaded_file(path, file_record.get("original_name") or name, file_id)
                         else:
                             st.warning(f"Missing file on disk: {name}")
+
+        active_preview_id = st.session_state.get("active_upload_preview")
+        if active_preview_id:
+            preview_record = next((item for item in st.session_state.get("uploaded_files", []) if item.get("id") == active_preview_id), None)
+            if preview_record and os.path.exists(preview_record.get("path", "")):
+                with st.expander("File Preview", expanded=True):
+                    preview_name = preview_record.get("original_name") or preview_record.get("label") or "Untitled"
+                    st.caption(preview_name)
+                    preview_top_col1, preview_top_col2 = st.columns([1, 1])
+                    with preview_top_col1:
+                        if st.button("Close Preview", key=f"close_preview_{active_preview_id}", use_container_width=True):
+                            clear_active_upload_preview()
+                            st.rerun()
+                    with preview_top_col2:
+                        if st.button("Insert into Chat", key=f"preview_insert_{active_preview_id}", use_container_width=True):
+                            insert_uploaded_file_into_chat(active_preview_id)
+                            clear_active_upload_preview()
+                            st.rerun()
+                    render_uploaded_file(
+                        preview_record["path"],
+                        preview_name,
+                        active_preview_id,
+                    )
+            else:
+                clear_active_upload_preview()
 
 # Past Chats Dropdown
 chat_col1, chat_col2, chat_col3, chat_col4 = st.columns([2, 1, 1, 1])
