@@ -241,10 +241,19 @@ def try_preview_pdf(path: str) -> str | None:
     try:
         from pypdf import PdfReader
         reader = PdfReader(path)
+        if getattr(reader, "is_encrypted", False):
+            try:
+                reader.decrypt("")
+            except Exception:
+                return None
         parts = []
-        for page in reader.pages[:3]:
-            parts.append(page.extract_text() or "")
-        return "\n".join(parts).strip()
+        for page in reader.pages[:5]:
+            try:
+                parts.append(page.extract_text() or "")
+            except Exception:
+                continue
+        text = "\n".join(parts).strip()
+        return text or None
     except Exception:
         return None
 
