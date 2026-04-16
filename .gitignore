@@ -1,2 +1,6 @@
 .env
 node_modules/
+groq2_state.json
+groq2_uploads/
+__pycache__/
+.streamlit/secrets.toml
