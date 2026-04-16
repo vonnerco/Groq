@@ -445,7 +445,7 @@ if not groq_api_key:
     st.stop()
 
 client = Groq(api_key=groq_api_key)
-# All 7 Groq models with their rate limits
+# Supported Groq models with their approximate rate limits
 MODELS = {
     "llama-3.1-8b-instant": {
         "context_window": 8192,
@@ -487,25 +487,25 @@ MODELS = {
         "tpd": 500000,
         "description": "Higher RPM ceiling for text generation",
     },
-    "moonshotai/kimi-k2-instruct": {
+    "qwen-qwq-32b": {
         "context_window": 8192,
-        "rpm": 60,
+        "rpm": 30,
         "rpd": 1000,
-        "tpm": 10000,
+        "tpm": 6000,
         "tpd": 300000,
-        "description": "Agentic or reasoning-heavy tasks",
+        "description": "Reasoning-heavy tasks and step-by-step problem solving",
     },
-    "moonshotai/kimi-k2-instruct-0905": {
+    "openai/gpt-oss-120b": {
         "context_window": 8192,
-        "rpm": 60,
+        "rpm": 30,
         "rpd": 1000,
-        "tpm": 10000,
+        "tpm": 6000,
         "tpd": 300000,
-        "description": "Newer 0905 version of kimi-k2",
+        "description": "High-capability agentic work and long-context reasoning",
     },
 }
 # Default model
-DEFAULT_MODEL = "moonshotai/kimi-k2-instruct"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 # System prompt for auto file/code features
 AUTO_FEATURES_PROMPT = "Auto-features: Type > filename to read, >! filename to write, code runs automatically."
 def inject_theme_css(theme: str):
@@ -555,6 +555,10 @@ for key, value in persisted_state.items():
         st.session_state[key] = value
 
 ensure_daily_usage_state()
+
+if st.session_state.get("selected_model") not in MODELS:
+    st.session_state.selected_model = DEFAULT_MODEL
+    save_persistent_state()
 
 if "theme_mode" not in st.session_state:
     st.session_state.theme_mode = "Dark"
