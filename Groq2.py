@@ -60,6 +60,7 @@ def load_persistent_state() -> dict:
         "current_tokens": 0,
         "usage_date": today,
         "recent_prompts": [],
+        "model_health_cache": {},
     }
     if not os.path.exists(APP_STATE_FILE):
         if os.path.exists(SEED_STATE_FILE):
@@ -87,6 +88,8 @@ def load_persistent_state() -> dict:
             default_state["saved_chats"] = {}
         if not isinstance(default_state.get("recent_prompts"), list):
             default_state["recent_prompts"] = []
+        if not isinstance(default_state.get("model_health_cache"), dict):
+            default_state["model_health_cache"] = {}
         uploaded_files = default_state["uploaded_files"]
         if isinstance(uploaded_files, dict):
             default_state["uploaded_files"] = [
@@ -127,6 +130,7 @@ def save_persistent_state() -> None:
         "usage_date": st.session_state.usage_date,
         "recent_prompts": st.session_state.get("recent_prompts", []),
         "uploaded_signatures": st.session_state.get("uploaded_signatures", []),
+        "model_health_cache": st.session_state.get("model_health_cache", {}),
     }
     tmp_file = f"{APP_STATE_FILE}.tmp"
     try:
@@ -438,7 +442,34 @@ def set_model_health(model_name: str) -> str:
     model_info = MODELS.get(model_name)
     if not model_info:
         return "unavailable"
-    return "available"
+    health_cache = st.session_state.setdefault("model_health_cache", {})
+    cached = health_cache.get(model_name)
+    if isinstance(cached, str):
+        return cached
+    return "unknown"
+
+
+def probe_model_health(model_name: str) -> str:
+    """Run a tiny live completion to verify that a model responds right now."""
+    if model_name not in MODELS:
+        return "unavailable"
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": "ping"}],
+            max_completion_tokens=1,
+            temperature=0,
+            top_p=1,
+            stream=False,
+        )
+        content = ""
+        if getattr(response, "choices", None):
+            content = getattr(response.choices[0].message, "content", "") or ""
+        status = "available" if content.strip() or content == "" else "unverified"
+    except Exception as exc:
+        status = "rate limited" if "rate" in str(exc).lower() else "unavailable"
+    st.session_state.setdefault("model_health_cache", {})[model_name] = status
+    return status
 
 
 def model_status_emoji(status: str) -> str:
@@ -925,7 +956,12 @@ with st.expander("Model settings", expanded=False):
         )
 
     st.caption(f"Active model: {model_option}")
-    st.caption(f"{model_status_emoji(set_model_health(model_option))} Model health: {set_model_health(model_option).title()}")
+    if st.button("Check model health", use_container_width=True):
+        with st.spinner("Checking model availability..."):
+            probe_model_health(model_option)
+        st.rerun()
+    health_status = set_model_health(model_option)
+    st.caption(f"{model_status_emoji(health_status)} Model health: {health_status.title()}")
     if st.button("Refresh model selection", use_container_width=True):
         st.session_state.selected_model = DEFAULT_MODEL
         st.session_state.total_prompt_tokens = 0
@@ -959,6 +995,10 @@ if st.session_state.selected_model != model_option:
     st.session_state.total_tokens_used = 0
     st.session_state.request_count = 0
     st.session_state.current_tokens = 0
+    save_persistent_state()
+
+if st.session_state.get("model_health_cache", {}).get(st.session_state.selected_model) is None:
+    probe_model_health(st.session_state.selected_model)
     save_persistent_state()
 # Display chat messages from history on app rerun
 for message in st.session_state.messages:
