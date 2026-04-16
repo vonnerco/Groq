@@ -343,6 +343,21 @@ def get_uploaded_file_index(file_id: str) -> int | None:
     return None
 
 
+def find_uploaded_file_by_query(query: str) -> dict | None:
+    clean_query = query.strip().lower()
+    if not clean_query:
+        return None
+    for item in st.session_state.get("uploaded_files", []):
+        candidates = [
+            item.get("label") or "",
+            item.get("original_name") or "",
+            os.path.basename(item.get("path") or ""),
+        ]
+        if any(clean_query == candidate.lower() or clean_query in candidate.lower() for candidate in candidates):
+            return item
+    return None
+
+
 def set_preview_relative(step: int) -> None:
     files = st.session_state.get("uploaded_files", [])
     current_id = st.session_state.get("active_upload_preview")
@@ -446,12 +461,13 @@ def insert_uploaded_file_into_chat(file_id: str) -> None:
     original_name = target.get("original_name") or target.get("label") or os.path.basename(path)
     ext = Path(original_name).suffix.lower()
     content = ""
+    visible_content = ""
     if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"}:
         st.session_state.messages.append({
             "role": "system",
             "content": f"[Image uploaded: {original_name} stored at {path}]",
         })
-        st.toast(f"Inserted {original_name} into chat context")
+        visible_content = f"Inserted image: {original_name}"
     else:
         if ext == ".csv":
             df = try_preview_csv(path)
@@ -469,7 +485,12 @@ def insert_uploaded_file_into_chat(file_id: str) -> None:
             "role": "system",
             "content": f"[Uploaded file: {original_name}]\n{content}",
         })
-        st.toast(f"Inserted {original_name} into chat context")
+        visible_content = f"Inserted file: {original_name}\n\n```text\n{content}\n```"
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": visible_content,
+    })
+    st.toast(f"Inserted {original_name} into chat context")
     save_persistent_state()
 
 
@@ -1093,6 +1114,17 @@ if prompt:
     exec_code = False
     code_to_run = None
     cmd = prompt.lower().strip()
+    uploaded_command_match = re.match(r'^[\@\/]\s*(.+)$', prompt.strip())
+    if uploaded_command_match:
+        file_query = uploaded_command_match.group(1).strip()
+        target_upload = find_uploaded_file_by_query(file_query)
+        if target_upload:
+            insert_uploaded_file_into_chat(target_upload["id"])
+            clear_active_upload_preview()
+            st.rerun()
+        else:
+            st.error(f"No uploaded file matched: {file_query}")
+            st.stop()
     # Check for > and >! shortcuts
     if cmd.startswith(">! "):
         filename = prompt[3:].strip()
