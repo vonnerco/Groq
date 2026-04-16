@@ -15,6 +15,7 @@ suppress_streamlit_warnings()
 
 import re
 import io
+import hashlib
 import traceback
 import mimetypes
 import uuid
@@ -176,10 +177,10 @@ def save_uploaded_file(uploaded_file) -> dict:
 def file_record_signature(uploaded_file) -> str:
     """Create a lightweight signature to avoid duplicate saves on reruns."""
     try:
-        size = len(uploaded_file.getbuffer())
+        digest = hashlib.sha256(uploaded_file.getbuffer()).hexdigest()
     except Exception:
-        size = 0
-    return f"{uploaded_file.name}|{size}"
+        digest = "unknown"
+    return f"{uploaded_file.name}|{digest}"
 
 
 def read_text_file(path: str) -> str:
@@ -300,6 +301,7 @@ def delete_uploaded_file(file_id: str) -> None:
         except Exception:
             pass
     st.session_state["uploaded_files"] = [item for item in uploaded_files if item.get("id") != file_id]
+    st.session_state.pop(f"show_preview_{file_id}", None)
     save_persistent_state()
 
 
@@ -313,6 +315,8 @@ def clear_all_uploaded_files() -> None:
             except Exception:
                 pass
     st.session_state["uploaded_files"] = []
+    for key in [k for k in st.session_state.keys() if str(k).startswith("show_preview_")]:
+        st.session_state.pop(key, None)
     save_persistent_state()
 
 
