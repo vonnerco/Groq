@@ -765,6 +765,16 @@ with st.expander("Model settings", expanded=False):
         )
 
     st.caption(f"Active model: {model_option}")
+    if st.button("Refresh model selection", use_container_width=True):
+        st.session_state.selected_model = DEFAULT_MODEL
+        st.session_state.total_prompt_tokens = 0
+        st.session_state.total_completion_tokens = 0
+        st.session_state.total_tokens_used = 0
+        st.session_state.request_count = 0
+        st.session_state.current_tokens = 0
+        st.session_state.messages = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
+        save_persistent_state()
+        st.rerun()
 
 # Detect model change and clear chat history if model has changed
 if st.session_state.selected_model != model_option:
