@@ -58,6 +58,7 @@ def load_persistent_state() -> dict:
         "request_count": 0,
         "current_tokens": 0,
         "usage_date": today,
+        "recent_prompts": [],
     }
     if not os.path.exists(APP_STATE_FILE):
         if os.path.exists(SEED_STATE_FILE):
@@ -83,6 +84,8 @@ def load_persistent_state() -> dict:
             default_state["messages"] = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
         if not isinstance(default_state["saved_chats"], dict):
             default_state["saved_chats"] = {}
+        if not isinstance(default_state.get("recent_prompts"), list):
+            default_state["recent_prompts"] = []
         uploaded_files = default_state["uploaded_files"]
         if isinstance(uploaded_files, dict):
             default_state["uploaded_files"] = [
@@ -121,6 +124,7 @@ def save_persistent_state() -> None:
         "request_count": st.session_state.request_count,
         "current_tokens": st.session_state.current_tokens,
         "usage_date": st.session_state.usage_date,
+        "recent_prompts": st.session_state.get("recent_prompts", []),
     }
     tmp_file = f"{APP_STATE_FILE}.tmp"
     try:
@@ -323,6 +327,48 @@ def get_tokens_left_today(model_name: str) -> int | None:
     if not isinstance(daily_limit, int):
         return None
     return max(daily_limit - int(st.session_state.get("total_tokens_used", 0)), 0)
+
+
+def ensure_ux_state() -> None:
+    """Initialize UX-related state used by the app chrome."""
+    defaults = {
+        "safe_mode": False,
+        "last_assistant_response": "",
+        "model_health": "unknown",
+        "recent_prompts": [],
+        "show_prompt_history": False,
+    }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
+
+
+def track_prompt(prompt: str) -> None:
+    prompts = st.session_state.setdefault("recent_prompts", [])
+    clean_prompt = prompt.strip()
+    if not clean_prompt:
+        return
+    if clean_prompt in prompts:
+        prompts.remove(clean_prompt)
+    prompts.insert(0, clean_prompt)
+    del prompts[10:]
+    save_persistent_state()
+
+
+def set_model_health(model_name: str) -> str:
+    model_info = MODELS.get(model_name)
+    if not model_info:
+        return "unavailable"
+    return "available"
+
+
+def model_status_emoji(status: str) -> str:
+    return {
+        "available": "🟢",
+        "rate limited": "🟡",
+        "unverified": "🟠",
+        "unavailable": "🔴",
+        "unknown": "⚪",
+    }.get(status, "⚪")
 
 
 def insert_uploaded_file_into_chat(file_id: str) -> None:
@@ -555,6 +601,7 @@ for key, value in persisted_state.items():
         st.session_state[key] = value
 
 ensure_daily_usage_state()
+ensure_ux_state()
 
 if st.session_state.get("selected_model") not in MODELS:
     st.session_state.selected_model = DEFAULT_MODEL
@@ -585,6 +632,16 @@ with st.container():
             st.rerun()
     with action_col4:
         st.markdown("[Latest](#latest-message)", unsafe_allow_html=True)
+    action_col5, action_col6 = st.columns([1, 1])
+    with action_col5:
+        if st.button("Clear System Messages", use_container_width=True):
+            st.session_state.messages = [m for m in st.session_state.messages if m.get("role") != "system"]
+            if not st.session_state.messages:
+                st.session_state.messages = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
+            save_persistent_state()
+            st.rerun()
+    with action_col6:
+        st.toggle("Safe mode", key="safe_mode", help="Disables automatic code execution and file writes.")
     with st.container():
         st.markdown(
             f"<div class='stats-box'><strong>Session:</strong> "
@@ -765,6 +822,7 @@ with st.expander("Model settings", expanded=False):
         )
 
     st.caption(f"Active model: {model_option}")
+    st.caption(f"{model_status_emoji(set_model_health(model_option))} Model health: {set_model_health(model_option).title()}")
     if st.button("Refresh model selection", use_container_width=True):
         st.session_state.selected_model = DEFAULT_MODEL
         st.session_state.total_prompt_tokens = 0
@@ -775,6 +833,19 @@ with st.expander("Model settings", expanded=False):
         st.session_state.messages = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
         save_persistent_state()
         st.rerun()
+
+with st.expander("Recent prompts", expanded=False):
+    if st.session_state.get("recent_prompts"):
+        for i, prompt_item in enumerate(st.session_state.recent_prompts[:5]):
+            prompt_col1, prompt_col2 = st.columns([5, 1])
+            with prompt_col1:
+                st.caption(prompt_item)
+            with prompt_col2:
+                if st.button("Load", key=f"load_prompt_{i}", use_container_width=True):
+                    st.session_state.queued_prompt = prompt_item
+                    st.rerun()
+    else:
+        st.caption("No recent prompts yet.")
 
 # Detect model change and clear chat history if model has changed
 if st.session_state.selected_model != model_option:
@@ -906,8 +977,11 @@ def handle_auto_actions(content: str) -> tuple[str, str, str]:
         except Exception as e:
             return None, None, f"Auto-write failed: {e}"
     return None, None, None
-if prompt := st.chat_input("Enter your prompt here..."):
+queued_prompt = st.session_state.pop("queued_prompt", None)
+prompt = queued_prompt or st.chat_input("Enter your prompt here...")
+if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
+    track_prompt(prompt)
     save_persistent_state()
     with st.chat_message("user", avatar='👨‍💻'):
         st.markdown(prompt)
@@ -943,7 +1017,11 @@ if prompt := st.chat_input("Enter your prompt here..."):
         any(k in prompt for k in ["print(", "import ", "def ", "class ", "if ", "for ", "while ", "return ", "print("]) and
         len(prompt.split('\n')) <= 10
     )
-    if code_block_match or is_bare_code or any(kw in cmd for kw in exec_keywords):
+    if st.session_state.safe_mode:
+        auto_write = False
+        exec_code = False
+        code_to_run = None
+    elif code_block_match or is_bare_code or any(kw in cmd for kw in exec_keywords):
         code = code_block_match.group(1) if code_block_match else None
         if not code:
             code_match = re.search(r'(?:run|execute|exec)\s+(?:this\s+)?(?:code\s+)?(?:here:?)?\s*(?:\n(.*))?', prompt, re.DOTALL | re.IGNORECASE)
@@ -1010,15 +1088,15 @@ if prompt := st.chat_input("Enter your prompt here..."):
                 chat_responses_generator = generate_chat_responses(chat_completion)
                 full_response = st.write_stream(chat_responses_generator)
             # Append the full response to session_state.messages
+            response_text = full_response if isinstance(full_response, str) else "\n".join(str(item) for item in full_response)
             if isinstance(full_response, str):
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
             else:
-                combined_response = "\n".join(str(item) for item in full_response)
-                st.session_state.messages.append({"role": "assistant", "content": combined_response})
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
+            st.session_state.last_assistant_response = response_text
             
             # Update token counts
             user_tokens = estimate_tokens(prompt)
-            response_text = combined_response if not isinstance(full_response, str) else full_response
             response_tokens = estimate_tokens(response_text)
             st.session_state.current_tokens = user_tokens + response_tokens
             st.session_state.total_prompt_tokens += user_tokens
@@ -1034,4 +1112,36 @@ if prompt := st.chat_input("Enter your prompt here..."):
             save_persistent_state()
             st.rerun()
         except Exception as e:
+            if hasattr(e, "response") and getattr(e.response, "status_code", None) == 404:
+                st.warning("The selected model is unavailable right now. Falling back to the default supported model.")
+                st.session_state.selected_model = DEFAULT_MODEL
+                st.session_state.total_prompt_tokens = 0
+                st.session_state.total_completion_tokens = 0
+                st.session_state.total_tokens_used = 0
+                st.session_state.request_count = 0
+                st.session_state.current_tokens = 0
+                save_persistent_state()
+                st.rerun()
             st.error(e, icon="🚨")
+
+if st.session_state.get("last_assistant_response"):
+    with st.expander("Last assistant response", expanded=False):
+        st.text_area("Response", st.session_state.last_assistant_response, height=200)
+        st.download_button(
+            "Download response",
+            data=st.session_state.last_assistant_response,
+            file_name="last_assistant_response.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+
+st.markdown("---")
+footer_cols = st.columns(4)
+with footer_cols[0]:
+    st.caption(f"Model: {st.session_state.selected_model}")
+with footer_cols[1]:
+    st.caption(f"Daily left: {get_tokens_left_today(st.session_state.selected_model)}")
+with footer_cols[2]:
+    st.caption(f"Key loaded: {'yes' if groq_api_key else 'no'}")
+with footer_cols[3]:
+    st.caption(f"Safe mode: {'on' if st.session_state.safe_mode else 'off'}")
