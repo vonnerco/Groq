@@ -410,9 +410,12 @@ async def list_mcp_tools():
     except Exception:
         return []
 
-client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY", None),
-)
+groq_api_key = os.getenv("GROQ_API_KEY")
+if not groq_api_key:
+    st.error("GROQ_API_KEY is not set. Add it to your .env file before running this app.")
+    st.stop()
+
+client = Groq(api_key=groq_api_key)
 # All 7 Groq models with their rate limits
 MODELS = {
     "llama-3.1-8b-instant": {
