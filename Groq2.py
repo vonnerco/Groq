@@ -125,6 +125,7 @@ def save_persistent_state() -> None:
         "current_tokens": st.session_state.current_tokens,
         "usage_date": st.session_state.usage_date,
         "recent_prompts": st.session_state.get("recent_prompts", []),
+        "uploaded_signatures": st.session_state.get("uploaded_signatures", []),
     }
     tmp_file = f"{APP_STATE_FILE}.tmp"
     try:
@@ -170,6 +171,15 @@ def save_uploaded_file(uploaded_file) -> dict:
         "size_bytes": len(file_bytes),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+
+def file_record_signature(uploaded_file) -> str:
+    """Create a lightweight signature to avoid duplicate saves on reruns."""
+    try:
+        size = len(uploaded_file.getbuffer())
+    except Exception:
+        size = 0
+    return f"{uploaded_file.name}|{size}"
 
 
 def read_text_file(path: str) -> str:
@@ -337,6 +347,7 @@ def ensure_ux_state() -> None:
         "model_health": "unknown",
         "recent_prompts": [],
         "show_prompt_history": False,
+        "uploaded_signatures": [],
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -352,6 +363,17 @@ def track_prompt(prompt: str) -> None:
     prompts.insert(0, clean_prompt)
     del prompts[10:]
     save_persistent_state()
+
+
+def already_uploaded(signature: str) -> bool:
+    return signature in st.session_state.setdefault("uploaded_signatures", [])
+
+
+def remember_uploaded(signature: str) -> None:
+    signatures = st.session_state.setdefault("uploaded_signatures", [])
+    if signature not in signatures:
+        signatures.append(signature)
+        save_persistent_state()
 
 
 def set_model_health(model_name: str) -> str:
@@ -437,7 +459,7 @@ except ImportError:
     MCP_AVAILABLE = False
 load_dotenv()  # Loads .env
 st.set_page_config(page_icon="💬", layout="wide",
-                   page_title="Groq2 Chat - Token-Optimized AI")
+                   page_title="Vonnerco GPT")
 
 # MCP Client
 mcp_client = None
@@ -612,8 +634,7 @@ if "theme_mode" not in st.session_state:
 
 inject_theme_css(st.session_state.theme_mode)
 
-icon("🏎️")
-st.subheader("Groq2 Chat - Token-Optimized AI", divider="rainbow", anchor=False)
+st.subheader("Vonnerco GPT", divider="rainbow", anchor=False)
 st.caption("Persistent chats, uploads, and model controls optimized for desktop and iPhone.")
 
 with st.container():
@@ -682,8 +703,12 @@ with st.sidebar:
     if uploaded_files:
         saved_uploads = st.session_state.setdefault("uploaded_files", [])
         for uploaded_file in uploaded_files:
+            signature = file_record_signature(uploaded_file)
+            if already_uploaded(signature):
+                continue
             record = save_uploaded_file(uploaded_file)
             saved_uploads.append(record)
+            remember_uploaded(signature)
             st.success(f"Saved: {uploaded_file.name}")
         save_persistent_state()
 
@@ -714,13 +739,13 @@ with st.sidebar:
                         st.caption(name)
                         recent_col1, recent_col2 = st.columns([1, 1])
                         with recent_col1:
-                            if st.button("Preview", key=f"recent_preview_{file_id}", use_container_width=True):
-                                st.session_state[f"preview_{file_id}"] = True
+                            if st.button("Preview", key=f"recent_preview_btn_{file_id}", use_container_width=True):
+                                st.session_state[f"show_preview_{file_id}"] = True
                         with recent_col2:
-                            if st.button("Insert", key=f"recent_insert_{file_id}", use_container_width=True):
+                            if st.button("Insert", key=f"recent_insert_btn_{file_id}", use_container_width=True):
                                 insert_uploaded_file_into_chat(file_id)
                                 st.rerun()
-                        if st.session_state.get(f"preview_{file_id}"):
+                        if st.session_state.get(f"show_preview_{file_id}"):
                             render_uploaded_file(path, file_record.get("original_name") or name)
 
         with st.expander("All uploads", expanded=False):
@@ -747,17 +772,17 @@ with st.sidebar:
                             )
                             file_col1, file_col2, file_col3 = st.columns([4, 1, 1])
                             with file_col1:
-                                if st.button("Preview", key=f"preview_{file_id}", use_container_width=True):
-                                    st.session_state[f"preview_{file_id}"] = True
+                                if st.button("Preview", key=f"preview_btn_{file_id}", use_container_width=True):
+                                    st.session_state[f"show_preview_{file_id}"] = True
                             with file_col2:
-                                if st.button("Insert", key=f"insert_{file_id}", use_container_width=True):
+                                if st.button("Insert", key=f"insert_btn_{file_id}", use_container_width=True):
                                     insert_uploaded_file_into_chat(file_id)
                                     st.rerun()
                             with file_col3:
-                                if st.button("Delete", key=f"delete_{file_id}", use_container_width=True):
+                                if st.button("Delete", key=f"delete_btn_{file_id}", use_container_width=True):
                                     delete_uploaded_file(file_id)
                                     st.rerun()
-                            if st.session_state.get(f"preview_{file_id}"):
+                            if st.session_state.get(f"show_preview_{file_id}"):
                                 render_uploaded_file(path, file_record.get("original_name") or name)
                         else:
                             st.warning(f"Missing file on disk: {name}")
