@@ -45,6 +45,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 def load_persistent_state() -> dict:
     """Load durable app state from disk."""
+    today = datetime.now().date().isoformat()
     default_state = {
         "saved_chats": {},
         "uploaded_files": [],
@@ -56,6 +57,7 @@ def load_persistent_state() -> dict:
         "total_tokens_used": 0,
         "request_count": 0,
         "current_tokens": 0,
+        "usage_date": today,
     }
     if not os.path.exists(APP_STATE_FILE):
         if os.path.exists(SEED_STATE_FILE):
@@ -75,6 +77,8 @@ def load_persistent_state() -> dict:
         if not isinstance(loaded, dict):
             return default_state
         default_state.update({k: loaded.get(k, v) for k, v in default_state.items()})
+        if not isinstance(default_state.get("usage_date"), str) or not default_state["usage_date"]:
+            default_state["usage_date"] = today
         if not isinstance(default_state["messages"], list) or not default_state["messages"]:
             default_state["messages"] = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
         if not isinstance(default_state["saved_chats"], dict):
@@ -116,6 +120,7 @@ def save_persistent_state() -> None:
         "total_tokens_used": st.session_state.total_tokens_used,
         "request_count": st.session_state.request_count,
         "current_tokens": st.session_state.current_tokens,
+        "usage_date": st.session_state.usage_date,
     }
     tmp_file = f"{APP_STATE_FILE}.tmp"
     try:
@@ -294,6 +299,30 @@ def clear_all_uploaded_files() -> None:
                 pass
     st.session_state["uploaded_files"] = []
     save_persistent_state()
+
+
+def ensure_daily_usage_state() -> None:
+    """Reset usage counters when a new calendar day starts."""
+    today = datetime.now().date().isoformat()
+    if st.session_state.get("usage_date") != today:
+        st.session_state.total_prompt_tokens = 0
+        st.session_state.total_completion_tokens = 0
+        st.session_state.total_tokens_used = 0
+        st.session_state.request_count = 0
+        st.session_state.current_tokens = 0
+        st.session_state.usage_date = today
+        save_persistent_state()
+
+
+def get_tokens_left_today(model_name: str) -> int | None:
+    """Return the remaining daily token budget for the active model."""
+    model_info = MODELS.get(model_name)
+    if not model_info:
+        return None
+    daily_limit = model_info.get("tpd")
+    if not isinstance(daily_limit, int):
+        return None
+    return max(daily_limit - int(st.session_state.get("total_tokens_used", 0)), 0)
 
 
 def insert_uploaded_file_into_chat(file_id: str) -> None:
@@ -525,6 +554,8 @@ for key, value in persisted_state.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
+ensure_daily_usage_state()
+
 if "theme_mode" not in st.session_state:
     st.session_state.theme_mode = "Dark"
 
@@ -555,7 +586,8 @@ with st.container():
             f"<div class='stats-box'><strong>Session:</strong> "
             f"{st.session_state.request_count} req | "
             f"{st.session_state.total_tokens_used} tokens total | "
-            f"{st.session_state.current_tokens} current</div>",
+            f"{st.session_state.current_tokens} current | "
+            f"{get_tokens_left_today(st.session_state.selected_model)} left today</div>",
             unsafe_allow_html=True,
         )
 
@@ -567,6 +599,7 @@ with st.expander("Session details", expanded=False):
         st.metric("Completion Tokens", st.session_state.total_completion_tokens)
     with stats_right:
         st.metric("Total Tokens", st.session_state.total_tokens_used)
+        st.metric("Tokens Left Today", get_tokens_left_today(st.session_state.selected_model))
         st.metric("Current Msg", st.session_state.current_tokens)
 
 with st.sidebar:
