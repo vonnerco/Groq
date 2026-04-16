@@ -451,6 +451,7 @@ def insert_uploaded_file_into_chat(file_id: str) -> None:
             "role": "system",
             "content": f"[Image uploaded: {original_name} stored at {path}]",
         })
+        st.toast(f"Inserted {original_name} into chat context")
     else:
         if ext == ".csv":
             df = try_preview_csv(path)
@@ -468,6 +469,7 @@ def insert_uploaded_file_into_chat(file_id: str) -> None:
             "role": "system",
             "content": f"[Uploaded file: {original_name}]\n{content}",
         })
+        st.toast(f"Inserted {original_name} into chat context")
     save_persistent_state()
 
 
