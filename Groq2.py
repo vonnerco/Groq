@@ -231,7 +231,7 @@ def try_preview_pdf(path: str) -> str | None:
         return None
 
 
-def render_uploaded_file(path: str, original_name: str):
+def render_uploaded_file(path: str, original_name: str, file_id: str):
     ext = Path(original_name).suffix.lower()
     mime, _ = mimetypes.guess_type(original_name)
     st.markdown(f"### {original_name}")
@@ -242,6 +242,7 @@ def render_uploaded_file(path: str, original_name: str):
         file_name=original_name,
         mime=mime or "application/octet-stream",
         use_container_width=True,
+        key=f"download_{file_id}",
     )
 
     if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"}:
@@ -746,7 +747,7 @@ with st.sidebar:
                                 insert_uploaded_file_into_chat(file_id)
                                 st.rerun()
                         if st.session_state.get(f"show_preview_{file_id}"):
-                            render_uploaded_file(path, file_record.get("original_name") or name)
+                            render_uploaded_file(path, file_record.get("original_name") or name, file_id)
 
         with st.expander("All uploads", expanded=False):
             grouped_files = {}
@@ -783,7 +784,7 @@ with st.sidebar:
                                     delete_uploaded_file(file_id)
                                     st.rerun()
                             if st.session_state.get(f"show_preview_{file_id}"):
-                                render_uploaded_file(path, file_record.get("original_name") or name)
+                                render_uploaded_file(path, file_record.get("original_name") or name, file_id)
                         else:
                             st.warning(f"Missing file on disk: {name}")
 
