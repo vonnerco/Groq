@@ -90,6 +90,8 @@ def load_persistent_state() -> dict:
             default_state["recent_prompts"] = []
         if not isinstance(default_state.get("model_health_cache"), dict):
             default_state["model_health_cache"] = {}
+        if default_state.get("selected_model") not in MODELS:
+            default_state["selected_model"] = DEFAULT_MODEL
         uploaded_files = default_state["uploaded_files"]
         if isinstance(uploaded_files, dict):
             default_state["uploaded_files"] = [
