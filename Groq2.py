@@ -104,11 +104,20 @@ def load_persistent_state() -> dict:
             normalized = []
             for item in uploaded_files:
                 if isinstance(item, dict) and "path" in item:
+                    signature = item.get("signature")
+                    if not signature and os.path.exists(item["path"]):
+                        try:
+                            with open(item["path"], "rb") as f:
+                                digest = hashlib.sha256(f.read()).hexdigest()
+                            signature = f"{item.get('original_name') or item.get('label') or os.path.basename(item['path'])}|{digest}"
+                        except Exception:
+                            signature = None
                     normalized.append({
                         "id": item.get("id", uuid.uuid4().hex),
                         "label": item.get("label") or item.get("original_name") or os.path.basename(item["path"]),
                         "path": item["path"],
                         "original_name": item.get("original_name") or item.get("label") or os.path.basename(item["path"]),
+                        "signature": signature,
                     })
             default_state["uploaded_files"] = normalized
         return default_state
@@ -170,11 +179,13 @@ def save_uploaded_file(uploaded_file) -> dict:
     path = get_safe_upload_path(uploaded_file.name)
     with open(path, "wb") as f:
         f.write(file_bytes)
+    signature = f"{uploaded_file.name}|{hashlib.sha256(file_bytes).hexdigest()}"
     return {
         "id": uuid.uuid4().hex,
         "label": uploaded_file.name,
         "path": path,
         "original_name": uploaded_file.name,
+        "signature": signature,
         "size_bytes": len(file_bytes),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
     }
@@ -306,6 +317,11 @@ def delete_uploaded_file(file_id: str) -> None:
             os.remove(target["path"])
         except Exception:
             pass
+    signature = target.get("signature") if target else None
+    if signature:
+        st.session_state["uploaded_signatures"] = [
+            item for item in st.session_state.get("uploaded_signatures", []) if item != signature
+        ]
     st.session_state["uploaded_files"] = [item for item in uploaded_files if item.get("id") != file_id]
     st.session_state.pop(f"show_preview_{file_id}", None)
     save_persistent_state()
@@ -321,6 +337,7 @@ def clear_all_uploaded_files() -> None:
             except Exception:
                 pass
     st.session_state["uploaded_files"] = []
+    st.session_state["uploaded_signatures"] = []
     for key in [k for k in st.session_state.keys() if str(k).startswith("show_preview_")]:
         st.session_state.pop(key, None)
     save_persistent_state()
