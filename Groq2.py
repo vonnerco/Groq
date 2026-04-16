@@ -582,9 +582,9 @@ try:
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
+
 load_dotenv()  # Loads .env
-st.set_page_config(page_icon="💬", layout="wide",
-                   page_title="Vonnerco GPT")
+st.set_page_config(page_icon="💬", layout="wide", page_title="Vonnerco GPT")
 
 # MCP Client
 mcp_client = None
@@ -632,14 +632,15 @@ async def list_mcp_tools():
     except Exception:
         return []
 
+
 groq_api_key = os.getenv("GROQ_API_KEY")
 if not groq_api_key:
     st.error("GROQ_API_KEY is not set. Add it to your .env file before running this app.")
     st.stop()
 
 client = Groq(api_key=groq_api_key)
+
 # Supported Groq models with their approximate rate limits.
-# Keep this list aligned with the models that are actually available in the org.
 MODELS = {
     "llama-3.1-8b-instant": {
         "context_window": 8192,
@@ -674,10 +675,11 @@ MODELS = {
         "description": "Higher RPM ceiling for text generation",
     },
 }
-# Default model
+
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
-# System prompt for auto file/code features
 AUTO_FEATURES_PROMPT = "Auto-features: Type > filename to read, >! filename to write, code runs automatically."
+
+
 def inject_theme_css(theme: str):
     is_dark = theme == "Dark"
     user_bg = "#1a1a2e" if is_dark else "#eef4ff"
@@ -713,12 +715,16 @@ def inject_theme_css(theme: str):
         """,
         unsafe_allow_html=True,
     )
+
+
 def icon(emoji: str):
     """Shows an emoji as a Notion-style page icon."""
     st.write(
         f'<span style="font-size: 78px; line-height: 1">{emoji}</span>',
         unsafe_allow_html=True,
     )
+
+
 persisted_state = load_persistent_state()
 for key, value in persisted_state.items():
     if key not in st.session_state:
@@ -1028,6 +1034,7 @@ if st.session_state.selected_model != model_option:
 if st.session_state.get("model_health_cache", {}).get(st.session_state.selected_model) is None:
     probe_model_health(st.session_state.selected_model)
     save_persistent_state()
+
 # Display chat messages from history on app rerun
 for message in st.session_state.messages:
     if message["role"] == "system":
@@ -1050,7 +1057,6 @@ if MCP_AVAILABLE:
             st.text("")
             if st.button("Connect", use_container_width=True):
                 args_list = mcp_args.split() if mcp_args.strip() else None
-                import asyncio
                 result = asyncio.run(connect_mcp_server(mcp_command, args_list))
                 st.session_state.mcp_status = result
                 st.rerun()
@@ -1060,7 +1066,132 @@ if MCP_AVAILABLE:
             tools = asyncio.run(list_mcp_tools())
             if tools:
                 st.success(f"Connected! {len(tools)} tools available")
-# Stats display
+
+# ── Aider Agent ────────────────────────────────────────────────────────────────
+st.markdown("---")
+with st.expander("🚀 Aider Agent", expanded=False):
+    st.caption(
+        "Launch Aider in a new terminal window using `groq/llama-3.3-70b-versatile`. "
+        "Your `GROQ_API_KEY` is read from `.env` automatically — no key is shown here."
+    )
+
+    aider_col1, aider_col2 = st.columns([3, 1])
+    with aider_col1:
+        aider_work_dir = st.text_input(
+            "Working directory",
+            value=os.path.dirname(os.path.abspath(__file__)),
+            help="Aider will be launched from this directory (defaults to the app folder).",
+            key="aider_work_dir",
+        )
+    with aider_col2:
+        st.text("")
+        launch_aider = st.button("Launch Aider", use_container_width=True, key="launch_aider_btn")
+
+    if launch_aider:
+        import shutil as _shutil
+        import subprocess as _subprocess
+        import platform as _platform
+
+        aider_bin = _shutil.which("aider")
+
+        if not aider_bin:
+            st.error(
+                "**Aider not found.** Install it first:\n\n"
+                "```\npip install aider-chat\n```",
+                icon="🔴",
+            )
+        elif not groq_api_key:
+            st.error(
+                "**GROQ_API_KEY is missing** from your `.env`. Aider needs it to call Groq.",
+                icon="🔴",
+            )
+        else:
+            _work_dir = (aider_work_dir or "").strip() or os.path.dirname(os.path.abspath(__file__))
+            _aider_cmd = [
+                aider_bin,
+                "--model", "groq/llama-3.3-70b-versatile",
+                "--no-auto-commits",   # safe default — remove if you want auto-commits
+            ]
+
+            # Propagate the already-loaded key into the child process environment
+            _env = os.environ.copy()
+            _env["GROQ_API_KEY"] = groq_api_key
+
+            try:
+                if _platform.system() == "Windows":
+                    # Opens a new CMD window; the TUI stays interactive
+                    _subprocess.Popen(
+                        ["cmd", "/k"] + _aider_cmd,
+                        cwd=_work_dir,
+                        env=_env,
+                        creationflags=_subprocess.CREATE_NEW_CONSOLE,
+                    )
+                    st.success(
+                        f"🚀 Aider launched in a new CMD window\n\n"
+                        f"**Model:** `groq/llama-3.3-70b-versatile`  |  **cwd:** `{_work_dir}`",
+                    )
+                else:
+                    # macOS / Linux: try common terminal emulators in order
+                    _terminals = ["gnome-terminal", "x-terminal-emulator", "xterm"]
+                    _launched = False
+                    for _term in _terminals:
+                        if _shutil.which(_term):
+                            _args = (
+                                [_term, "--"] + _aider_cmd
+                                if _term == "gnome-terminal"
+                                else [_term, "-e", " ".join(_aider_cmd)]
+                            )
+                            _subprocess.Popen(_args, cwd=_work_dir, env=_env)
+                            _launched = True
+                            st.success(
+                                f"🚀 Aider launched via `{_term}`\n\n"
+                                f"**Model:** `groq/llama-3.3-70b-versatile`  |  **cwd:** `{_work_dir}`",
+                            )
+                            break
+
+                    if not _launched:
+                        st.warning(
+                            "No supported terminal emulator found on this system. "
+                            "Run the command below manually in your terminal:",
+                            icon="⚠️",
+                        )
+                        st.code(" ".join(_aider_cmd), language="bash")
+
+                st.caption(f"Binary: `{aider_bin}`")
+
+            except Exception as _aider_err:
+                st.error(f"Launch failed: {_aider_err}", icon="🔴")
+                st.code(" ".join(_aider_cmd), language="bash")
+                st.caption("Copy the command above and run it manually in your terminal.")
+
+    with st.expander("ℹ️ Quick reference", expanded=False):
+        st.markdown(
+            """
+**Install Aider**
+```bash
+pip install aider-chat
+```
+
+**What the Launch button does**
+- Reads `GROQ_API_KEY` from `.env` (already loaded — never shown in UI)
+- Opens `aider --model groq/llama-3.3-70b-versatile` in a **new terminal window**
+- `--no-auto-commits` is set by default so every git commit stays under your control
+
+**Common manual invocations**
+```bash
+# Target a specific file
+aider --model groq/llama-3.3-70b-versatile --file myfile.py
+
+# Enable auto-commits
+aider --model groq/llama-3.3-70b-versatile --auto-commits
+
+# Read-only reference file (context only, Aider won't edit it)
+aider --model groq/llama-3.3-70b-versatile --read README.md --file main.py
+```
+            """
+        )
+
+# ── Stats display ──────────────────────────────────────────────────────────────
 st.markdown("---")
 col_stats1, col_stats2, col_stats3, col_stats4, col_stats5 = st.columns(5)
 with col_stats1:
@@ -1072,31 +1203,35 @@ with col_stats3:
 with col_stats4:
     st.metric("Total Tokens", st.session_state.total_tokens_used)
     st.metric("Current Msg", st.session_state.current_tokens)
+
+
 def trim_messages(messages: list, max_tokens: int = 6000) -> list:
     """Trim messages to stay within token limit, keeping system prompt."""
     if not messages:
         return messages
-    
     system_msg = messages[0] if messages[0]["role"] == "system" else None
     chat_msgs = messages[1:] if system_msg else messages
-    
     system_tokens = estimate_tokens(system_msg["content"]) if system_msg else 0
     target_tokens = max_tokens - system_tokens - 500  # Buffer for response
-    
     trimmed = chat_msgs
     while estimate_tokens(str(trimmed)) > target_tokens and len(trimmed) > 4:
         trimmed = trimmed[2:]  # Remove oldest user+assistant pair
-    
     return [system_msg] + trimmed if system_msg else trimmed
+
+
 def estimate_tokens(text: str) -> int:
     if isinstance(text, list):
         text = " ".join(str(item) for item in text)
     return len(text) // 4
+
+
 def generate_chat_responses(chat_completion) -> Generator[str, None, None]:
     """Yield chat response content from the Groq API response."""
     for chunk in chat_completion:
         if chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
+
+
 def execute_code(code: str) -> tuple[str, str]:
     """Execute Python code and return (stdout, stderr)."""
     output_buffer = io.StringIO()
@@ -1108,6 +1243,8 @@ def execute_code(code: str) -> tuple[str, str]:
     except Exception as e:
         tb = traceback.format_exc()
         return "", f"{e}\n{tb}"
+
+
 def handle_auto_actions(content: str) -> tuple[str, str, str]:
     """Handle auto file read/write actions. Returns (read_content, write_file, write_content)."""
     auto_read_file = None
@@ -1126,7 +1263,6 @@ def handle_auto_actions(content: str) -> tuple[str, str, str]:
                 auto_write_content = '\n'.join(lines)
         elif stripped.startswith('> ') and not auto_read_file:
             auto_read_file = stripped[2:].strip()
-    # Perform auto-read
     if auto_read_file:
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1137,7 +1273,6 @@ def handle_auto_actions(content: str) -> tuple[str, str, str]:
             return f"File not found: {auto_read_file}", None, None
         except Exception as e:
             return f"Error reading file: {e}", None, None
-    # Perform auto-write
     if auto_write_file and auto_write_content:
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1148,21 +1283,25 @@ def handle_auto_actions(content: str) -> tuple[str, str, str]:
         except Exception as e:
             return None, None, f"Auto-write failed: {e}"
     return None, None, None
+
+
 queued_prompt = st.session_state.pop("queued_prompt", None)
 prompt = queued_prompt or st.chat_input("Enter your prompt here...")
+
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     track_prompt(prompt)
     save_persistent_state()
     with st.chat_message("user", avatar='👨‍💻'):
         st.markdown(prompt)
-    # Auto-detect file intent
+
     auto_read = False
     auto_write = False
     filename = ""
     exec_code = False
     code_to_run = None
     cmd = prompt.lower().strip()
+
     uploaded_command_match = re.match(r'^[\@\/]\s*(.+)$', prompt.strip())
     if uploaded_command_match:
         file_query = uploaded_command_match.group(1).strip()
@@ -1174,24 +1313,22 @@ if prompt:
         else:
             st.error(f"No uploaded file matched: {file_query}")
             st.stop()
-    # Check for > and >! shortcuts
+
     if cmd.startswith(">! "):
         filename = prompt[3:].strip()
         auto_write = True
     elif cmd.startswith("> "):
         filename = prompt[2:].strip()
         auto_read = True
-    # Auto-detect: bare path
     elif re.match(r'^[\w\-\./\\]+$', cmd) and not any(cmd.startswith(m) for m in ["model", "stats", "clear", "tips", "exit"]):
         filename = cmd
         auto_read = True
-    # Auto-detect write intent
     elif any(kw in cmd for kw in ["write to ", "save to ", "create file ", "make file ", "new file "]):
         match = re.search(r'(?:to |file )?([\w\-\./\\]+)$', cmd)
         if match:
             filename = match.group(1)
             auto_write = True
-    # Auto-detect code execution
+
     code_block_match = re.search(r'```(?:python)?\n(.*?)```', prompt, re.DOTALL)
     exec_keywords = ["run ", "execute ", "exec ", "run code", "execute code", "run this", "execute this", "run it", "execute it"]
     is_bare_code = (
@@ -1199,6 +1336,7 @@ if prompt:
         any(k in prompt for k in ["print(", "import ", "def ", "class ", "if ", "for ", "while ", "return ", "print("]) and
         len(prompt.split('\n')) <= 10
     )
+
     if st.session_state.safe_mode:
         auto_write = False
         exec_code = False
@@ -1216,8 +1354,9 @@ if prompt:
             code = re.sub(r'^(run|exec|python)[:\s]*', '', code, flags=re.IGNORECASE).strip()
             code_to_run = code
             exec_code = True
+
     full_response = ""
-    # Handle file read
+
     if auto_read:
         if filename:
             try:
@@ -1234,11 +1373,9 @@ if prompt:
             except Exception as e:
                 st.error(f"Error reading file: {e}")
         st.rerun()
-    # Handle file write
     elif auto_write:
         st.info(f"Write mode for: {filename}. Use the code execution feature to write files.")
         st.rerun()
-    # Handle code execution
     elif exec_code and code_to_run:
         st.info("Executing code...")
         stdout_out, stderr_out = execute_code(code_to_run)
@@ -1249,10 +1386,8 @@ if prompt:
         if not stdout_out and not stderr_out:
             st.info("(no output)")
         st.rerun()
-    # Normal chat completion with specified parameters
     else:
         try:
-            # Build API call kwargs
             api_kwargs = {
                 "model": model_option,
                 "messages": [{"role": m["role"], "content": m["content"]} for m in trim_messages(st.session_state.messages)],
@@ -1262,22 +1397,18 @@ if prompt:
                 "stream": True,
                 "stop": None,
             }
-            # Only add reasoning_effort for models that support it with "high" value
-            # Most models don't support it, or only support "none"/"default"
             chat_completion = client.chat.completions.create(**api_kwargs)
-            # Use the generator function with st.write_stream
             with st.chat_message("assistant", avatar="🤖"):
                 chat_responses_generator = generate_chat_responses(chat_completion)
                 full_response = st.write_stream(chat_responses_generator)
-            # Append the full response to session_state.messages
+
             response_text = full_response if isinstance(full_response, str) else "\n".join(str(item) for item in full_response)
             if isinstance(full_response, str):
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
             else:
                 st.session_state.messages.append({"role": "assistant", "content": response_text})
             st.session_state.last_assistant_response = response_text
-            
-            # Update token counts
+
             user_tokens = estimate_tokens(prompt)
             response_tokens = estimate_tokens(response_text)
             st.session_state.current_tokens = user_tokens + response_tokens
@@ -1285,7 +1416,7 @@ if prompt:
             st.session_state.total_completion_tokens += response_tokens
             st.session_state.total_tokens_used += st.session_state.current_tokens
             st.session_state.request_count += 1
-            # Handle auto actions from AI response
+
             read_content, write_file, write_msg = handle_auto_actions(full_response)
             if read_content:
                 st.session_state.messages.append({"role": "system", "content": f"[File contents]:\n{read_content}"})
