@@ -320,6 +320,10 @@ def clear_all_uploaded_files() -> None:
     save_persistent_state()
 
 
+def clear_file_preview_state(file_id: str) -> None:
+    st.session_state.pop(f"show_preview_{file_id}", None)
+
+
 def ensure_daily_usage_state() -> None:
     """Reset usage counters when a new calendar day starts."""
     today = datetime.now().date().isoformat()
@@ -749,6 +753,7 @@ with st.sidebar:
                         with recent_col2:
                             if st.button("Insert", key=f"recent_insert_btn_{file_id}", use_container_width=True):
                                 insert_uploaded_file_into_chat(file_id)
+                                clear_file_preview_state(file_id)
                                 st.rerun()
                         if st.session_state.get(f"show_preview_{file_id}"):
                             render_uploaded_file(path, file_record.get("original_name") or name, file_id)
@@ -782,6 +787,7 @@ with st.sidebar:
                             with file_col2:
                                 if st.button("Insert", key=f"insert_btn_{file_id}", use_container_width=True):
                                     insert_uploaded_file_into_chat(file_id)
+                                    clear_file_preview_state(file_id)
                                     st.rerun()
                             with file_col3:
                                 if st.button("Delete", key=f"delete_btn_{file_id}", use_container_width=True):
