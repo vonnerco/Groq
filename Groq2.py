@@ -682,9 +682,9 @@ AUTO_FEATURES_PROMPT = "Auto-features: Type > filename to read, >! filename to w
 
 def inject_theme_css(theme: str):
     is_dark = theme == "Dark"
-    user_bg = "#1a1a2e" if is_dark else "#eef4ff"
-    assistant_bg = "#16213e" if is_dark else "#f4f7fb"
-    text_color = "#ffffff" if is_dark else "#1f2937"
+    user_bg = "#3b82f6" if is_dark else "#e5e7eb"
+    assistant_bg = "#1f2937" if is_dark else "#f3f4f6"
+    text_color = "#ffffff" if is_dark else "#111827"
     stats_bg = "#0f3460" if is_dark else "#dbeafe"
     stats_text = "#ffffff" if is_dark else "#0f172a"
     st.markdown(
