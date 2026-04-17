@@ -628,6 +628,19 @@ def ace_language_for_file(filename: str) -> str:
     return ACE_LANGUAGE_MAP.get(ext, "text")
 
 
+def execute_code(code: str) -> tuple[str, str]:
+    """Execute Python code and return (stdout, stderr)."""
+    output_buffer = io.StringIO()
+    error_buffer = io.StringIO()
+    try:
+        with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
+            exec(code, {"__name__": "__main__"})
+        return output_buffer.getvalue(), error_buffer.getvalue()
+    except Exception as e:
+        tb = traceback.format_exc()
+        return "", f"{e}\n{tb}"
+
+
 def render_ace_editor_panel():
     """Render the full streamlit-ace code editor panel."""
     if not ACE_AVAILABLE:
@@ -654,7 +667,9 @@ def render_ace_editor_panel():
             key="ace_language_select",
             label_visibility="collapsed",
         )
-        st.session_state.ace_editor_language = chosen_language
+        if chosen_language != st.session_state.ace_editor_language:
+            st.session_state.ace_editor_language = chosen_language
+            st.rerun()
 
     with ace_toolbar_cols[1]:
         chosen_theme = st.selectbox(
@@ -666,15 +681,24 @@ def render_ace_editor_panel():
             key="ace_theme_select",
             label_visibility="collapsed",
         )
-        st.session_state.ace_editor_theme = chosen_theme
+        if chosen_theme != st.session_state.ace_editor_theme:
+            st.session_state.ace_editor_theme = chosen_theme
+            st.rerun()
 
     with ace_toolbar_cols[2]:
         if st.button("▶ Run", use_container_width=True, key="ace_run_btn"):
             st.session_state["ace_run_requested"] = True
+            st.rerun()
 
     with ace_toolbar_cols[3]:
         if st.button("📋 Copy to Chat", use_container_width=True, key="ace_copy_btn"):
-            st.session_state["ace_copy_to_chat"] = True
+            code = st.session_state.ace_editor_content or ""
+            if code.strip():
+                lang = st.session_state.ace_editor_language
+                st.session_state.queued_prompt = f"```{lang}\n{code}\n```"
+                st.rerun()
+            else:
+                st.warning("Editor is empty.")
 
     with ace_toolbar_cols[4]:
         # Load an uploaded file into the editor
@@ -729,10 +753,10 @@ def render_ace_editor_panel():
     )
 
     # Persist the editor content back to session state whenever it changes
-    if editor_content is not None:
+    if editor_content is not None and editor_content != st.session_state.ace_editor_content:
         st.session_state.ace_editor_content = editor_content
 
-    # ── Save to disk button ────────────────────────────────────────────────────
+    # ── Save to disk and download buttons ──────────────────────────────────────
     save_row_cols = st.columns([3, 1, 1])
     with save_row_cols[1]:
         if st.button("💾 Save to disk", use_container_width=True, key="ace_save_disk_btn"):
@@ -778,16 +802,6 @@ def render_ace_editor_panel():
                 st.error(stderr_out)
             if not stdout_out and not stderr_out:
                 st.info("(no output)")
-
-    # ── Copy editor content to chat input ──────────────────────────────────────
-    if st.session_state.pop("ace_copy_to_chat", False):
-        code = st.session_state.ace_editor_content or ""
-        if code.strip():
-            lang = st.session_state.ace_editor_language
-            st.session_state.queued_prompt = f"```{lang}\n{code}\n```"
-            st.rerun()
-        else:
-            st.info("Editor is empty.")
 
 
 # ── MCP ────────────────────────────────────────────────────────────────────────
@@ -1344,126 +1358,6 @@ if MCP_AVAILABLE:
             if tools:
                 st.success(f"Connected! {len(tools)} tools available")
 
-# ── Aider Agent ────────────────────────────────────────────────────────────────
-st.markdown("---")
-with st.expander("🚀 Aider Agent", expanded=False):
-    st.caption(
-        "Launch Aider in a new terminal window using `groq/llama-3.3-70b-versatile`. "
-        "Your `GROQ_API_KEY` is read from `.env` automatically — no key is shown here."
-    )
-
-    aider_col1, aider_col2 = st.columns([3, 1])
-    with aider_col1:
-        aider_work_dir = st.text_input(
-            "Working directory",
-            value=os.path.dirname(os.path.abspath(__file__)),
-            help="Aider will be launched from this directory (defaults to the app folder).",
-            key="aider_work_dir",
-        )
-    with aider_col2:
-        st.text("")
-        launch_aider = st.button("Launch Aider", use_container_width=True, key="launch_aider_btn")
-
-    if launch_aider:
-        import shutil as _shutil
-        import subprocess as _subprocess
-        import platform as _platform
-
-        aider_bin = _shutil.which("aider")
-
-        if not aider_bin:
-            st.error(
-                "**Aider not found.** Install it first:\n\n```\npip install aider-chat\n```",
-                icon="🔴",
-            )
-        elif not groq_api_key:
-            st.error(
-                "**GROQ_API_KEY is missing** from your `.env`. Aider needs it to call Groq.",
-                icon="🔴",
-            )
-        else:
-            _work_dir = (aider_work_dir or "").strip() or os.path.dirname(os.path.abspath(__file__))
-            _aider_cmd = [
-                aider_bin,
-                "--model", "groq/llama-3.3-70b-versatile",
-                "--no-auto-commits",
-            ]
-
-            _env = os.environ.copy()
-            _env["GROQ_API_KEY"] = groq_api_key
-
-            try:
-                if _platform.system() == "Windows":
-                    _subprocess.Popen(
-                        ["cmd", "/k"] + _aider_cmd,
-                        cwd=_work_dir,
-                        env=_env,
-                        creationflags=_subprocess.CREATE_NEW_CONSOLE,
-                    )
-                    st.success(
-                        f"🚀 Aider launched in a new CMD window\n\n"
-                        f"**Model:** `groq/llama-3.3-70b-versatile`  |  **cwd:** `{_work_dir}`",
-                    )
-                else:
-                    _terminals = ["gnome-terminal", "x-terminal-emulator", "xterm"]
-                    _launched = False
-                    for _term in _terminals:
-                        if _shutil.which(_term):
-                            _args = (
-                                [_term, "--"] + _aider_cmd
-                                if _term == "gnome-terminal"
-                                else [_term, "-e", " ".join(_aider_cmd)]
-                            )
-                            _subprocess.Popen(_args, cwd=_work_dir, env=_env)
-                            _launched = True
-                            st.success(
-                                f"🚀 Aider launched via `{_term}`\n\n"
-                                f"**Model:** `groq/llama-3.3-70b-versatile`  |  **cwd:** `{_work_dir}`",
-                            )
-                            break
-
-                    if not _launched:
-                        st.warning(
-                            "No supported terminal emulator found on this system. "
-                            "Run the command below manually in your terminal:",
-                            icon="⚠️",
-                        )
-                        st.code(" ".join(_aider_cmd), language="bash")
-
-                st.caption(f"Binary: `{aider_bin}`")
-
-            except Exception as _aider_err:
-                st.error(f"Launch failed: {_aider_err}", icon="🔴")
-                st.code(" ".join(_aider_cmd), language="bash")
-                st.caption("Copy the command above and run it manually in your terminal.")
-
-    with st.expander("ℹ️ Quick reference", expanded=False):
-        st.markdown(
-            """
-**Install Aider**
-```bash
-pip install aider-chat
-```
-
-**What the Launch button does**
-- Reads `GROQ_API_KEY` from `.env` (already loaded — never shown in UI)
-- Opens `aider --model groq/llama-3.3-70b-versatile` in a **new terminal window**
-- `--no-auto-commits` is set by default so every git commit stays under your control
-
-**Common manual invocations**
-```bash
-# Target a specific file
-aider --model groq/llama-3.3-70b-versatile --file myfile.py
-
-# Enable auto-commits
-aider --model groq/llama-3.3-70b-versatile --auto-commits
-
-# Read-only reference file (context only, Aider won't edit it)
-aider --model groq/llama-3.3-70b-versatile --read README.md --file main.py
-```
-            """
-        )
-
 # ── Stats display ──────────────────────────────────────────────────────────────
 st.markdown("---")
 col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
@@ -1503,19 +1397,6 @@ def generate_chat_responses(chat_completion) -> Generator[str, None, None]:
     for chunk in chat_completion:
         if chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
-
-
-def execute_code(code: str) -> tuple[str, str]:
-    """Execute Python code and return (stdout, stderr)."""
-    output_buffer = io.StringIO()
-    error_buffer = io.StringIO()
-    try:
-        with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
-            exec(code, {"__name__": "__main__"})
-        return output_buffer.getvalue(), error_buffer.getvalue()
-    except Exception as e:
-        tb = traceback.format_exc()
-        return "", f"{e}\n{tb}"
 
 
 def handle_auto_actions(content: str) -> tuple[str, str, str]:
