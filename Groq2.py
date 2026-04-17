@@ -3,12 +3,17 @@ import json
 from datetime import datetime
 import sys
 import warnings
+
+
 def suppress_streamlit_warnings():
     """Suppress Streamlit context warnings for bare mode."""
     if not hasattr(sys, "_getframe"):
         return
     warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+
+
 suppress_streamlit_warnings()
+
 import re
 import io
 import hashlib
@@ -19,14 +24,16 @@ from pathlib import Path
 from contextlib import redirect_stdout, redirect_stderr
 from dotenv import load_dotenv
 import streamlit as st
-from streamlit_ace import st_ace
+# FIX 1: Removed unused `from streamlit_ace import st_ace` — caused ModuleNotFoundError
+#         if streamlit-ace wasn't installed, and was never referenced anywhere in the app.
 from typing import Generator
 from groq import Groq
-import asyncio
 from streamlit.runtime.scriptrunner import get_script_run_ctx
+
 
 def is_streamlit_context() -> bool:
     return get_script_run_ctx() is not None
+
 
 if not is_streamlit_context():
     print("Run this app with: streamlit run Groq2.py")
@@ -571,6 +578,7 @@ def upload_group_for_extension(ext: str) -> str:
         return "Code"
     return "Other"
 
+
 try:
     from mcp import ClientSession
     MCP_AVAILABLE = True
@@ -585,8 +593,20 @@ mcp_client = None
 mcp_session = None
 
 
-async def connect_mcp_server(command: str, args: list = None):
-    """Connect to a local MCP server."""
+# FIX 2: Removed asyncio.run() from MCP helpers — Streamlit already runs in an
+#         async loop, so asyncio.run() raises "This event loop is already running."
+#         MCP async calls must be dispatched via a background thread or replaced with
+#         a sync-compatible transport. Stubs below are wired to thread-pool execution.
+
+def _run_async(coro):
+    """Execute an async coroutine safely from within the Streamlit sync context."""
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(__import__("asyncio").run, coro)
+        return future.result()
+
+
+async def _connect_mcp_server_async(command: str, args: list = None):
     global mcp_client, mcp_session
     if not MCP_AVAILABLE:
         return "MCP package not installed. Run: pip install mcp"
@@ -603,28 +623,37 @@ async def connect_mcp_server(command: str, args: list = None):
         return f"Failed to connect: {e}"
 
 
-async def call_mcp_tool(tool_name: str, arguments: dict = None):
-    """Call a tool from the MCP server."""
+async def _call_mcp_tool_async(tool_name: str, arguments: dict = None):
     global mcp_session
     if not mcp_session:
         return "Not connected to MCP server"
     try:
         result = await mcp_session.call_tool(tool_name, arguments or {})
-        return result.content if hasattr(result, 'content') else str(result)
+        return result.content if hasattr(result, "content") else str(result)
     except Exception as e:
         return f"Tool error: {e}"
 
 
-async def list_mcp_tools():
-    """List available tools from MCP server."""
+async def _list_mcp_tools_async():
     global mcp_session
     if not mcp_session:
         return []
     try:
-        tools = await mcp_session.list_tools()
-        return tools
+        return await mcp_session.list_tools()
     except Exception:
         return []
+
+
+def connect_mcp_server(command: str, args: list = None):
+    return _run_async(_connect_mcp_server_async(command, args))
+
+
+def call_mcp_tool(tool_name: str, arguments: dict = None):
+    return _run_async(_call_mcp_tool_async(tool_name, arguments))
+
+
+def list_mcp_tools():
+    return _run_async(_list_mcp_tools_async())
 
 
 groq_api_key = os.getenv("GROQ_API_KEY")
@@ -924,7 +953,11 @@ with st.sidebar:
 chat_col1, chat_col2, chat_col3, chat_col4 = st.columns([2, 1, 1, 1])
 with chat_col1:
     chat_options = ["New Chat"] + list(st.session_state.saved_chats.keys())
-    selected_chat = st.selectbox("Past Chats", options=chat_options, index=chat_options.index(st.session_state.chat_name) if st.session_state.chat_name in chat_options else 0)
+    selected_chat = st.selectbox(
+        "Past Chats",
+        options=chat_options,
+        index=chat_options.index(st.session_state.chat_name) if st.session_state.chat_name in chat_options else 0,
+    )
     if selected_chat != st.session_state.chat_name:
         if selected_chat == "New Chat":
             st.session_state.messages = [{"role": "system", "content": AUTO_FEATURES_PROMPT}]
@@ -936,7 +969,10 @@ with chat_col1:
 with chat_col2:
     st.text("")
     st.text("")
-    chat_name_input = st.text_input("Save as", value=st.session_state.chat_name if st.session_state.chat_name != "New Chat" else "")
+    chat_name_input = st.text_input(
+        "Save as",
+        value=st.session_state.chat_name if st.session_state.chat_name != "New Chat" else "",
+    )
 with chat_col3:
     st.text("")
     st.text("")
@@ -974,13 +1010,16 @@ with st.expander("Model settings", expanded=False):
     with col2:
         model_info = MODELS[model_option]
         max_tokens_range = model_info["context_window"]
-        max_tokens = st.slider(
+        # FIX 3: Renamed `max_tokens` to `user_max_tokens` to make it clear this is the
+        #         user-configured value, and it is now passed into the API call below
+        #         instead of being silently ignored in favour of a hardcoded 4000.
+        user_max_tokens = st.slider(
             "Max Tokens:",
             min_value=512,
             max_value=max_tokens_range,
             value=min(4000, max_tokens_range),
             step=512,
-            help=f"Adjust the maximum number of tokens. Max for selected model: {max_tokens_range}"
+            help=f"Adjust the maximum number of tokens. Max for selected model: {max_tokens_range}",
         )
 
     st.caption(f"Active model: {model_option}")
@@ -1025,9 +1064,14 @@ if st.session_state.selected_model != model_option:
     st.session_state.current_tokens = 0
     save_persistent_state()
 
-if st.session_state.get("model_health_cache", {}).get(st.session_state.selected_model) is None:
-    probe_model_health(st.session_state.selected_model)
-    save_persistent_state()
+# FIX 4: Guard the auto-probe with a session flag so it fires at most once per
+#         Streamlit session, not on every rerun. Previously it fired on every
+#         rerun when cache was None, burning RPM quota unnecessarily.
+if not st.session_state.get("_model_health_probed"):
+    if st.session_state.get("model_health_cache", {}).get(st.session_state.selected_model) is None:
+        probe_model_health(st.session_state.selected_model)
+        save_persistent_state()
+    st.session_state["_model_health_probed"] = True
 
 # 1. Initialize messages if they don't exist yet (Safety check)
 if "messages" not in st.session_state:
@@ -1037,36 +1081,31 @@ if "messages" not in st.session_state:
 for message in st.session_state.messages:
     if message["role"] == "system":
         continue
-    
-    avatar = '🤖' if message["role"] == "assistant" else '👨‍💻'
-    
+
+    avatar = "🤖" if message["role"] == "assistant" else "👨‍💻"
+
     with st.chat_message(message["role"], avatar=avatar):
-        # Display the Text Content
         if message.get("content"):
             st.markdown(message["content"])
-        
-        # Display the Uploads (nested inside the chat message block)
+
         if "files" in message:
             for file in message["files"]:
                 if file["type"] == "image":
                     st.image(file["data"], caption=file.get("name"))
-                
                 elif file["type"] in ["csv", "dataframe"]:
                     st.dataframe(file["data"])
-                
                 elif file["type"] == "pdf":
                     st.info(f"📄 PDF Uploaded: {file.get('name')}")
                     st.download_button(
                         label=f"Download {file.get('name')}",
                         data=file["data"],
-                        file_name=file.get('name'),
-                        key=f"dl_{file.get('name')}_{st.session_state.messages.index(message)}"
+                        file_name=file.get("name"),
+                        key=f"dl_{file.get('name')}_{st.session_state.messages.index(message)}",
                     )
-                
                 elif file["type"] == "code":
                     st.code(file["data"], language=file.get("language", "python"))
 
-# 3. Place the auto-scroll anchor ONLY ONCE after the loop completes
+# 3. Auto-scroll anchor — placed once after the loop
 st.markdown('<div id="latest-message"></div>', unsafe_allow_html=True)
 
 # MCP Server Connection
@@ -1075,19 +1114,27 @@ if MCP_AVAILABLE:
     with st.expander("MCP Server Connection", expanded=False):
         mcp_col1, mcp_col2 = st.columns([3, 1])
         with mcp_col1:
-            mcp_command = st.text_input("MCP Server Command", value="npx", help="Command to run MCP server (e.g., npx, python, node)")
-            mcp_args = st.text_input("Server Args (optional)", value="-y @anthropic/mcp-server-anthropic", help="Arguments for the server command")
+            mcp_command = st.text_input(
+                "MCP Server Command",
+                value="npx",
+                help="Command to run MCP server (e.g., npx, python, node)",
+            )
+            mcp_args = st.text_input(
+                "Server Args (optional)",
+                value="-y @anthropic/mcp-server-anthropic",
+                help="Arguments for the server command",
+            )
         with mcp_col2:
             st.text("")
             if st.button("Connect", use_container_width=True):
                 args_list = mcp_args.split() if mcp_args.strip() else None
-                result = asyncio.run(connect_mcp_server(mcp_command, args_list))
+                result = connect_mcp_server(mcp_command, args_list)
                 st.session_state.mcp_status = result
                 st.rerun()
         if "mcp_status" in st.session_state:
             st.info(st.session_state.mcp_status)
         if mcp_session:
-            tools = asyncio.run(list_mcp_tools())
+            tools = list_mcp_tools()
             if tools:
                 st.success(f"Connected! {len(tools)} tools available")
 
@@ -1120,8 +1167,7 @@ with st.expander("🚀 Aider Agent", expanded=False):
 
         if not aider_bin:
             st.error(
-                "**Aider not found.** Install it first:\n\n"
-                "```\npip install aider-chat\n```",
+                "**Aider not found.** Install it first:\n\n```\npip install aider-chat\n```",
                 icon="🔴",
             )
         elif not groq_api_key:
@@ -1134,16 +1180,14 @@ with st.expander("🚀 Aider Agent", expanded=False):
             _aider_cmd = [
                 aider_bin,
                 "--model", "groq/llama-3.3-70b-versatile",
-                "--no-auto-commits",   # safe default — remove if you want auto-commits
+                "--no-auto-commits",
             ]
 
-            # Propagate the already-loaded key into the child process environment
             _env = os.environ.copy()
             _env["GROQ_API_KEY"] = groq_api_key
 
             try:
                 if _platform.system() == "Windows":
-                    # Opens a new CMD window; the TUI stays interactive
                     _subprocess.Popen(
                         ["cmd", "/k"] + _aider_cmd,
                         cwd=_work_dir,
@@ -1155,7 +1199,6 @@ with st.expander("🚀 Aider Agent", expanded=False):
                         f"**Model:** `groq/llama-3.3-70b-versatile`  |  **cwd:** `{_work_dir}`",
                     )
                 else:
-                    # macOS / Linux: try common terminal emulators in order
                     _terminals = ["gnome-terminal", "x-terminal-emulator", "xterm"]
                     _launched = False
                     for _term in _terminals:
@@ -1217,7 +1260,8 @@ aider --model groq/llama-3.3-70b-versatile --read README.md --file main.py
 
 # ── Stats display ──────────────────────────────────────────────────────────────
 st.markdown("---")
-col_stats1, col_stats2, col_stats3, col_stats4, col_stats5 = st.columns(5)
+# FIX 5: Was `st.columns(5)` with only 4 used — removed the dead `col_stats5` variable.
+col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
 with col_stats1:
     st.metric("Requests", st.session_state.request_count)
 with col_stats2:
@@ -1274,18 +1318,18 @@ def handle_auto_actions(content: str) -> tuple[str, str, str]:
     auto_read_file = None
     auto_write_file = None
     auto_write_content = None
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         stripped = line.strip()
-        if stripped.startswith('>! '):
+        if stripped.startswith(">! "):
             auto_write_file = stripped[3:].strip()
-            code_match = re.search(r'```[\w]*\n(.*?)```', content, re.DOTALL)
+            code_match = re.search(r"```[\w]*\n(.*?)```", content, re.DOTALL)
             if code_match:
                 auto_write_content = code_match.group(1)
             else:
                 remaining = content[content.index(stripped) + len(stripped):]
-                lines = [l for l in remaining.split('\n') if l.strip() and not l.strip().startswith('>')][:20]
-                auto_write_content = '\n'.join(lines)
-        elif stripped.startswith('> ') and not auto_read_file:
+                lines = [l for l in remaining.split("\n") if l.strip() and not l.strip().startswith(">")][:20]
+                auto_write_content = "\n".join(lines)
+        elif stripped.startswith("> ") and not auto_read_file:
             auto_read_file = stripped[2:].strip()
     if auto_read_file:
         try:
@@ -1316,7 +1360,7 @@ if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     track_prompt(prompt)
     save_persistent_state()
-    with st.chat_message("user", avatar='👨‍💻'):
+    with st.chat_message("user", avatar="👨‍💻"):
         st.markdown(prompt)
 
     auto_read = False
@@ -1326,7 +1370,7 @@ if prompt:
     code_to_run = None
     cmd = prompt.lower().strip()
 
-    uploaded_command_match = re.match(r'^[\@\/]\s*(.+)$', prompt.strip())
+    uploaded_command_match = re.match(r"^[\@\/]\s*(.+)$", prompt.strip())
     if uploaded_command_match:
         file_query = uploaded_command_match.group(1).strip()
         target_upload = find_uploaded_file_by_query(file_query)
@@ -1344,21 +1388,27 @@ if prompt:
     elif cmd.startswith("> "):
         filename = prompt[2:].strip()
         auto_read = True
-    elif re.match(r'^[\w\-\./\\]+$', cmd) and not any(cmd.startswith(m) for m in ["model", "stats", "clear", "tips", "exit"]):
+    elif re.match(r"^[\w\-\./\\]+$", cmd) and not any(
+        cmd.startswith(m) for m in ["model", "stats", "clear", "tips", "exit"]
+    ):
         filename = cmd
         auto_read = True
     elif any(kw in cmd for kw in ["write to ", "save to ", "create file ", "make file ", "new file "]):
-        match = re.search(r'(?:to |file )?([\w\-\./\\]+)$', cmd)
+        match = re.search(r"(?:to |file )?([\w\-\./\\]+)$", cmd)
         if match:
             filename = match.group(1)
             auto_write = True
 
-    code_block_match = re.search(r'```(?:python)?\n(.*?)```', prompt, re.DOTALL)
-    exec_keywords = ["run ", "execute ", "exec ", "run code", "execute code", "run this", "execute this", "run it", "execute it"]
+    code_block_match = re.search(r"```(?:python)?\n(.*?)```", prompt, re.DOTALL)
+    exec_keywords = [
+        "run ", "execute ", "exec ", "run code", "execute code",
+        "run this", "execute this", "run it", "execute it",
+    ]
+    # FIX 6: Removed the duplicate "print(" entry from the bare-code keyword list.
     is_bare_code = (
-        not any(cmd.startswith(m) for m in ["model", "stats", "clear", "tips", "exit", "read ", "write ", "> ", ">! "]) and
-        any(k in prompt for k in ["print(", "import ", "def ", "class ", "if ", "for ", "while ", "return ", "print("]) and
-        len(prompt.split('\n')) <= 10
+        not any(cmd.startswith(m) for m in ["model", "stats", "clear", "tips", "exit", "read ", "write ", "> ", ">! "])
+        and any(k in prompt for k in ["print(", "import ", "def ", "class ", "if ", "for ", "while ", "return "])
+        and len(prompt.split("\n")) <= 10
     )
 
     if st.session_state.safe_mode:
@@ -1368,35 +1418,54 @@ if prompt:
     elif code_block_match or is_bare_code or any(kw in cmd for kw in exec_keywords):
         code = code_block_match.group(1) if code_block_match else None
         if not code:
-            code_match = re.search(r'(?:run|execute|exec)\s+(?:this\s+)?(?:code\s+)?(?:here:?)?\s*(?:\n(.*))?', prompt, re.DOTALL | re.IGNORECASE)
+            code_match = re.search(
+                r"(?:run|execute|exec)\s+(?:this\s+)?(?:code\s+)?(?:here:?)?\s*(?:\n(.*))?",
+                prompt,
+                re.DOTALL | re.IGNORECASE,
+            )
             if not code_match:
-                lines = prompt.split('\n')
-                code_lines = [l for l in lines if any(k in l for k in ['import ', 'def ', 'print(', 'if ', 'for ', 'while ', '=', '.'])]
+                lines = prompt.split("\n")
+                code_lines = [
+                    l for l in lines
+                    if any(k in l for k in ["import ", "def ", "print(", "if ", "for ", "while ", "=", "."])
+                ]
                 if code_lines:
-                    code = '\n'.join(code_lines)
+                    code = "\n".join(code_lines)
         if code:
-            code = re.sub(r'^(run|exec|python)[:\s]*', '', code, flags=re.IGNORECASE).strip()
+            code = re.sub(r"^(run|exec|python)[:\s]*", "", code, flags=re.IGNORECASE).strip()
             code_to_run = code
             exec_code = True
 
     full_response = ""
 
+    # FIX 7: auto_read no longer calls st.rerun() when a file error occurs, so the
+    #         st.error() message is actually visible to the user before the page refreshes.
     if auto_read:
         if filename:
+            read_error = None
             try:
                 base_dir = os.path.dirname(os.path.abspath(__file__))
                 filepath = os.path.join(base_dir, filename)
                 with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read()
-                st.session_state.messages.append({"role": "system", "content": f"[File '{filename}' contents]:\n{content}"})
-                with st.chat_message("system", avatar='📄'):
+                st.session_state.messages.append(
+                    {"role": "system", "content": f"[File '{filename}' contents]:\n{content}"}
+                )
+                with st.chat_message("system", avatar="📄"):
                     st.code(content, language="text")
                 save_persistent_state()
             except FileNotFoundError:
-                st.error(f"File not found: {filename}")
+                read_error = f"File not found: {filename}"
             except Exception as e:
-                st.error(f"Error reading file: {e}")
-        st.rerun()
+                read_error = f"Error reading file: {e}"
+
+            if read_error:
+                st.error(read_error)
+            else:
+                st.rerun()
+        else:
+            st.rerun()
+
     elif auto_write:
         st.info(f"Write mode for: {filename}. Use the code execution feature to write files.")
         st.rerun()
@@ -1414,9 +1483,13 @@ if prompt:
         try:
             api_kwargs = {
                 "model": model_option,
-                "messages": [{"role": m["role"], "content": m["content"]} for m in trim_messages(st.session_state.messages)],
+                "messages": [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in trim_messages(st.session_state.messages)
+                ],
                 "temperature": 0.2,
-                "max_completion_tokens": 4000,
+                # FIX 3 (continued): Use the user-configured slider value, not a hardcoded 4000.
+                "max_completion_tokens": user_max_tokens,
                 "top_p": 0.9,
                 "stream": True,
                 "stop": None,
@@ -1424,17 +1497,18 @@ if prompt:
             chat_completion = client.chat.completions.create(**api_kwargs)
             with st.chat_message("assistant", avatar="🤖"):
                 chat_responses_generator = generate_chat_responses(chat_completion)
+                # FIX 8: Capture write_stream result as a string immediately. st.write_stream
+                #         returns the fully concatenated string in Streamlit >= 1.31; coerce
+                #         defensively to str so handle_auto_actions never receives a generator.
                 full_response = st.write_stream(chat_responses_generator)
+                if not isinstance(full_response, str):
+                    full_response = "".join(str(chunk) for chunk in full_response)
 
-            response_text = full_response if isinstance(full_response, str) else "\n".join(str(item) for item in full_response)
-            if isinstance(full_response, str):
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
-            else:
-                st.session_state.messages.append({"role": "assistant", "content": response_text})
-            st.session_state.last_assistant_response = response_text
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
+            st.session_state.last_assistant_response = full_response
 
             user_tokens = estimate_tokens(prompt)
-            response_tokens = estimate_tokens(response_text)
+            response_tokens = estimate_tokens(full_response)
             st.session_state.current_tokens = user_tokens + response_tokens
             st.session_state.total_prompt_tokens += user_tokens
             st.session_state.total_completion_tokens += response_tokens
@@ -1443,14 +1517,18 @@ if prompt:
 
             read_content, write_file, write_msg = handle_auto_actions(full_response)
             if read_content:
-                st.session_state.messages.append({"role": "system", "content": f"[File contents]:\n{read_content}"})
+                st.session_state.messages.append(
+                    {"role": "system", "content": f"[File contents]:\n{read_content}"}
+                )
             if write_file:
                 st.session_state.messages.append({"role": "system", "content": f"[{write_msg}]"})
             save_persistent_state()
             st.rerun()
         except Exception as e:
             if hasattr(e, "response") and getattr(e.response, "status_code", None) == 404:
-                st.warning("The selected model is unavailable right now. Falling back to the default supported model.")
+                st.warning(
+                    "The selected model is unavailable right now. Falling back to the default supported model."
+                )
                 st.session_state.selected_model = DEFAULT_MODEL
                 st.session_state.total_prompt_tokens = 0
                 st.session_state.total_completion_tokens = 0
