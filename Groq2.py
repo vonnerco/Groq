@@ -1,18 +1,14 @@
 import os
 import json
 from datetime import datetime
-
 import sys
 import warnings
-
 def suppress_streamlit_warnings():
     """Suppress Streamlit context warnings for bare mode."""
     if not hasattr(sys, "_getframe"):
         return
     warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
-
 suppress_streamlit_warnings()
-
 import re
 import io
 import hashlib
@@ -23,20 +19,18 @@ from pathlib import Path
 from contextlib import redirect_stdout, redirect_stderr
 from dotenv import load_dotenv
 import streamlit as st
+from streamlit_ace import st_ace
 from typing import Generator
 from groq import Groq
 import asyncio
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
-
 def is_streamlit_context() -> bool:
     return get_script_run_ctx() is not None
-
 
 if not is_streamlit_context():
     print("Run this app with: streamlit run Groq2.py")
     sys.exit(0)
-
 
 APP_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "groq2_state.json")
 SEED_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "groq2_seed_state.json")
@@ -584,7 +578,7 @@ except ImportError:
     MCP_AVAILABLE = False
 
 load_dotenv()  # Loads .env
-st.set_page_config(page_icon="💬", layout="wide", page_title="Vonnerco GPT")
+st.set_page_config(page_icon="💬", layout="wide", page_title="Vonnerco AI Agent")
 
 # MCP Client
 mcp_client = None
@@ -1035,14 +1029,44 @@ if st.session_state.get("model_health_cache", {}).get(st.session_state.selected_
     probe_model_health(st.session_state.selected_model)
     save_persistent_state()
 
-# Display chat messages from history on app rerun
+# 1. Initialize messages if they don't exist yet (Safety check)
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# 2. Display chat messages and uploads from history on app rerun
 for message in st.session_state.messages:
     if message["role"] == "system":
         continue
+    
     avatar = '🤖' if message["role"] == "assistant" else '👨‍💻'
+    
     with st.chat_message(message["role"], avatar=avatar):
-        st.markdown(message["content"])
+        # Display the Text Content
+        if message.get("content"):
+            st.markdown(message["content"])
+        
+        # Display the Uploads (nested inside the chat message block)
+        if "files" in message:
+            for file in message["files"]:
+                if file["type"] == "image":
+                    st.image(file["data"], caption=file.get("name"))
+                
+                elif file["type"] in ["csv", "dataframe"]:
+                    st.dataframe(file["data"])
+                
+                elif file["type"] == "pdf":
+                    st.info(f"📄 PDF Uploaded: {file.get('name')}")
+                    st.download_button(
+                        label=f"Download {file.get('name')}",
+                        data=file["data"],
+                        file_name=file.get('name'),
+                        key=f"dl_{file.get('name')}_{st.session_state.messages.index(message)}"
+                    )
+                
+                elif file["type"] == "code":
+                    st.code(file["data"], language=file.get("language", "python"))
 
+# 3. Place the auto-scroll anchor ONLY ONCE after the loop completes
 st.markdown('<div id="latest-message"></div>', unsafe_allow_html=True)
 
 # MCP Server Connection
